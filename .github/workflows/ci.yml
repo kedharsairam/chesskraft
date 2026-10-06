@@ -1,0 +1,61 @@
+# The gate, and the tests, on every push.
+#
+# A gate that only runs locally is a gate that runs when you remember, and four apps in this
+# portfolio have no .github directory at all. Both steps block.
+#
+# Read the two indentation-sensitive things below before copying this file:
+#
+#   1. The app is checked out into a subdirectory (path: <app>) and `working-directory` is set
+#      to match, so the app and the foundation sit side by side as siblings — which is what
+#      `includeBuild("../kraft-foundation")` in settings.gradle.kts requires.
+#   2. Therefore the gate's path to the foundation starts `../`, and the app is `.`.
+#      Getting either wrong produces a MODULE_NOT_FOUND, or worse, a clean run over the
+#      workspace root that silently includes the foundation and calls itself a pass.
+#
+# This file was written before either mistake was made in a real app, and both were made.
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+# CHANGE: this must equal the `path:` given to the checkout below.
+defaults:
+  run:
+    working-directory: chesskraft-app
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # CHANGE: this must equal `working-directory` above.
+      - uses: actions/checkout@v4
+        with:
+          path: chesskraft-app
+
+      # The foundation is a sibling checkout because the app consumes it as a composite build.
+      # It is public, so no credentials are needed at all — an app that adopted the foundation
+      # while it was private needed a read-only deploy key, and trainkraft's existed until the
+      # rename. A public repository makes the problem zero instead of nine.
+      - name: Checkout kraft-foundation
+        uses: actions/checkout@v4
+        with:
+          repository: kedharsairam/kraft-foundation
+          path: kraft-foundation
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # `quality.ci-runs-the-gate` fails if this step is removed.
+      - name: Quality gate
+        run: node ../kraft-foundation/tools/kraft-lint/kraft-lint.js . --format github
+
+      # `quality.ci-runs-tests` fails if this step is removed.
+      - name: Unit tests
+        run: ./gradlew testDebugUnitTest --no-daemon
+
+      - name: Lint
+        run: ./gradlew lintDebug --no-daemon
