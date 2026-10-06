@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -29,6 +31,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import com.kraft.ui.tokens.KraftRadius
 import com.kraft.ui.tokens.KraftSpacing
@@ -36,7 +41,6 @@ import com.krafttools.chesskraft.domain.ChessMove
 import com.krafttools.chesskraft.domain.PieceCode
 import com.krafttools.chesskraft.domain.PieceType
 import com.krafttools.chesskraft.domain.Side
-import com.krafttools.chesskraft.ui.theme.ChessKraftColors
 
 /**
  * Promotion picker. Four large icons, Queen pre-selected — one tap to
@@ -75,7 +79,8 @@ fun PromotionDialog(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                 ) {
                     for (option in options.sortedByDescending { promoRank(it.promotion) }) {
-                        val code = PieceCode.of(side, option.promotion ?: PieceType.QUEEN)
+                        val type = option.promotion ?: PieceType.QUEEN
+                        val code = PieceCode.of(side, type)
                         val isSelected = option == selected
                         Box(
                             contentAlignment = Alignment.Center,
@@ -83,9 +88,13 @@ fun PromotionDialog(
                                 .size(KraftSpacing.Spacing56)
                                 .clip(RoundedCornerShape(KraftRadius.Standard))
                                 .border(
-                                    width = KraftSpacing.BorderWidth,
+                                    width = if (isSelected) {
+                                        KraftSpacing.Spacing2
+                                    } else {
+                                        KraftSpacing.BorderWidth
+                                    },
                                     color = if (isSelected) {
-                                        ChessKraftColors.Accent
+                                        MaterialTheme.colorScheme.primary
                                     } else {
                                         MaterialTheme.colorScheme.outline
                                     },
@@ -93,8 +102,17 @@ fun PromotionDialog(
                                 )
                                 .clickable(
                                     role = Role.RadioButton,
+                                    onClickLabel = "Promote to ${type.name.lowercase()}",
                                     onClick = { selected = option },
-                                ),
+                                )
+                                .semantics(mergeDescendants = true) {
+                                    this.selected = isSelected
+                                    contentDescription = if (isSelected) {
+                                        "Promote to ${type.name.lowercase()}, selected."
+                                    } else {
+                                        "Promote to ${type.name.lowercase()}."
+                                    }
+                                },
                         ) {
                             Text(
                                 text = glyphFor(code),
@@ -107,7 +125,7 @@ fun PromotionDialog(
             }
         },
         confirmButton = {
-            TextButton(
+            Button(
                 onClick = { selected?.let(onChoose) },
                 enabled = selected != null,
             ) {
@@ -115,7 +133,12 @@ fun PromotionDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                onClick = onDismiss,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                ),
+            ) {
                 Text("Cancel")
             }
         },

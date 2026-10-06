@@ -29,10 +29,15 @@ object ChessKraftColors {
     val Accent = Color(0xFFD8B45A)
     val OnAccent = Color(0xFF241A08)
 
-    // Board wood, desaturated so brass markers and red check read instantly.
+    // Board wood: the lichess brown default, light #F0D9B5 over dark #B58863.
+    // Adjacent-square contrast is ~2.29:1 — enough to read the grid at a glance
+    // without vibrating. Brass markers and red check both sit on top of it.
     // Declared here (the palette) so `colour.per-app-declared` stays green.
-    val LightSquare = Color(0xFFD8C6A3)
-    val DarkSquare = Color(0xFF7C6247)
+    val LightSquare = Color(0xFFF0D9B5)
+    val DarkSquare = Color(0xFFB58863)
+    // Outline-first piece set (Cburnett-style): paper-white faces stay
+    // mid-tone-distinct from the dark app chrome, and read on light wood
+    // only via the near-black edge drawn under them — never a shadow.
     val PieceWhite = Color(0xFFF5EFE2)
     val PieceBlack = Color(0xFF1B1712)
 
@@ -49,7 +54,13 @@ object ChessKraftColors {
             surfaceVariant = KraftColorSchemes.Dark.surfaceVariant,
             onSurface = KraftColorSchemes.Dark.onSurface,
             onSurfaceVariant = KraftColorSchemes.Dark.onSurfaceVariant,
+            surfaceContainerLowest = KraftColorSchemes.Dark.surfaceContainerLowest,
+            surfaceContainerLow = KraftColorSchemes.Dark.surfaceContainerLow,
+            surfaceContainer = KraftColorSchemes.Dark.surfaceContainer,
+            surfaceContainerHigh = KraftColorSchemes.Dark.surfaceContainerHigh,
+            surfaceContainerHighest = KraftColorSchemes.Dark.surfaceContainerHighest,
             outline = KraftColorSchemes.Dark.outline,
+            outlineVariant = KraftColorSchemes.Dark.outlineVariant,
             error = KraftColorSchemes.Dark.error,
         )
     } else {
@@ -61,7 +72,13 @@ object ChessKraftColors {
             surfaceVariant = KraftColorSchemes.Light.surfaceVariant,
             onSurface = KraftColorSchemes.Light.onSurface,
             onSurfaceVariant = KraftColorSchemes.Light.onSurfaceVariant,
+            surfaceContainerLowest = KraftColorSchemes.Light.surfaceContainerLowest,
+            surfaceContainerLow = KraftColorSchemes.Light.surfaceContainerLow,
+            surfaceContainer = KraftColorSchemes.Light.surfaceContainer,
+            surfaceContainerHigh = KraftColorSchemes.Light.surfaceContainerHigh,
+            surfaceContainerHighest = KraftColorSchemes.Light.surfaceContainerHighest,
             outline = KraftColorSchemes.Light.outline,
+            outlineVariant = KraftColorSchemes.Light.outlineVariant,
             error = KraftColorSchemes.Light.error,
         )
     }

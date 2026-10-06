@@ -6,6 +6,7 @@ package com.krafttools.chesskraft
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -41,8 +42,12 @@ private sealed interface Route {
 
 @Composable
 fun ChessKraftApp() {
+    // Route and its key sequence survive config change (rotation, font
+    // scale): without this the activity recreate drops an in-progress game
+    // back to Home and strands the retained GameViewModel. The ViewModel
+    // itself is untouched — it already survives, keyed on the config key.
     var route by remember { mutableStateOf<Route>(Route.Home) }
-    var gameSeq by remember { mutableStateOf(0L) }
+    var gameSeq by remember { mutableLongStateOf(0L) }
 
     when (val current = route) {
         Route.Home -> HomeScreen(

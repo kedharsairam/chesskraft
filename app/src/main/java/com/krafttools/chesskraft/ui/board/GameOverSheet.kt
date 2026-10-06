@@ -8,8 +8,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -18,18 +21,23 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import com.kraft.ui.tokens.KraftRadius
 import com.kraft.ui.tokens.KraftSpacing
+import com.kraft.ui.tokens.KraftTypeScale
 import com.krafttools.chesskraft.domain.GameResult
 
 /**
- * Game-over sheet. Plain words plus the reason — never a bare score — with
- * Rematch (colours swapped), a fresh New game, and Review.
+ * Game-over sheet. The result leads — a short headline, one sub-line, and the
+ * one number that matters (moves played) — then Rematch, New Game, Review.
+ * Rematch is the single filled action; nothing here is dead.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GameOverSheet(
     result: GameResult,
+    moveCount: Int,
     onRematch: () -> Unit,
     onNewGame: () -> Unit,
     onReview: () -> Unit,
@@ -39,16 +47,18 @@ fun GameOverSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = KraftSpacing.Spacing24)
-                .padding(bottom = KraftSpacing.Spacing32),
+                .padding(horizontal = KraftSpacing.ScreenEdge)
+                .navigationBarsPadding()
+                .padding(bottom = KraftSpacing.Spacing8),
         ) {
             Text(
                 text = result.title,
                 style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth(),
             )
-            Spacer(Modifier.height(KraftSpacing.Spacing8))
+            Spacer(Modifier.height(KraftSpacing.Spacing4))
             Text(
                 text = result.reason,
                 style = MaterialTheme.typography.bodyMedium,
@@ -56,33 +66,65 @@ fun GameOverSheet(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth(),
             )
+            Spacer(Modifier.height(KraftSpacing.Spacing8))
+            Text(
+                text = movesLine(moveCount),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
             Spacer(Modifier.height(KraftSpacing.Spacing24))
             Button(
                 onClick = onRematch,
+                shape = RoundedCornerShape(KraftRadius.Medium),
+                colors = ButtonDefaults.buttonColors(),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(KraftSpacing.Spacing48),
+                    .height(KraftSpacing.Spacing56),
             ) {
-                Text("Rematch — swap colours")
+                Text(
+                    text = "Rematch",
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = KraftTypeScale.Callout,
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                )
             }
             Spacer(Modifier.height(KraftSpacing.Spacing8))
             OutlinedButton(
                 onClick = onNewGame,
+                shape = RoundedCornerShape(KraftRadius.Medium),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(KraftSpacing.Spacing48),
+                    .height(KraftSpacing.Spacing56),
             ) {
-                Text("New game")
+                Text(
+                    text = "New Game",
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = KraftTypeScale.Callout,
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                )
             }
-            Spacer(Modifier.height(KraftSpacing.Spacing8))
+            Spacer(Modifier.height(KraftSpacing.Spacing4))
             TextButton(
                 onClick = onReview,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                ),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(KraftSpacing.Spacing48),
             ) {
-                Text("Review the game")
+                Text("Review")
             }
         }
     }
+}
+
+private fun movesLine(moveCount: Int): String = when (moveCount) {
+    0 -> "No moves played."
+    1 -> "One move played."
+    else -> "$moveCount moves played."
 }
