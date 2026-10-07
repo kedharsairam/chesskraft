@@ -29,11 +29,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
@@ -98,6 +100,8 @@ fun ChessBoard(
     }
     val reduceMotion = rememberReduceMotion()
     val measurer = rememberTextMeasurer()
+    val context = LocalContext.current
+    val art = remember { PieceArt.of(context) }
     val motion = rememberBoardMotion(reduceMotion)
 
     val snapshot = remember(state.pieces, state.sideToMove) {
@@ -144,7 +148,7 @@ fun ChessBoard(
                 .clip(RoundedCornerShape(KraftRadius.Medium))
                 .border(
                     KraftSpacing.Spacing2,
-                    ChessKraftColors.Accent,
+                    ChessKraftColors.FeltGold,
                     RoundedCornerShape(KraftRadius.Medium),
                 )
                 .graphicsLayer { translationX = motion.nudgePx }
@@ -210,6 +214,7 @@ fun ChessBoard(
                     coordLayouts = coordLayouts,
                     coordOnLight = coordOnLight,
                     coordOnDark = coordOnDark,
+                    art = art,
                     targetSquares = targetSquares,
                     targetCaptures = targetCaptures,
                     dragFrom = dragFrom,
@@ -269,6 +274,7 @@ private fun DrawScope.drawBoard(
     coordLayouts: Array<TextLayoutResult?>,
     coordOnLight: TextStyle,
     coordOnDark: TextStyle,
+    art: Map<Int, ImageBitmap>,
     targetSquares: IntArray,
     targetCaptures: BooleanArray,
     dragFrom: Int?,
@@ -281,7 +287,7 @@ private fun DrawScope.drawBoard(
     val sq = BoardGeometry.squareSize(boardPx)
     val light = ChessKraftColors.LightSquare
     val dark = ChessKraftColors.DarkSquare
-    val accent = ChessKraftColors.Accent
+    val accent = ChessKraftColors.FeltGold
     val error = errorColor
 
     // 1. Squares.
@@ -451,7 +457,7 @@ private fun DrawScope.drawBoard(
         if (square == dragFrom && dragPos != null) continue
         val code = state.pieces[square]
         if (code == 0) continue
-        drawVectorPiece(code, cellCenter(square, boardPx, state.flipped), sq)
+        drawArtPiece(art, code, cellCenter(square, boardPx, state.flipped), sq)
     }
     if (slidingPiece != 0 && lastFrom != null && lastTo != null) {
         val fromCenter = cellCenter(lastFrom, boardPx, state.flipped)
@@ -460,12 +466,12 @@ private fun DrawScope.drawBoard(
             fromCenter.x + (toCenter.x - fromCenter.x) * slideProgress,
             fromCenter.y + (toCenter.y - fromCenter.y) * slideProgress,
         )
-        drawVectorPiece(slidingPiece, at, sq)
+        drawArtPiece(art, slidingPiece, at, sq)
     }
     // Dragged piece follows the finger, drawn last so it floats above.
     if (dragFrom != null && dragPos != null) {
         val code = state.pieces[dragFrom]
-        if (code != 0) drawVectorPiece(code, dragPos, sq)
+        if (code != 0) drawArtPiece(art, code, dragPos, sq)
     }
 }
 

@@ -5,6 +5,7 @@
 package com.krafttools.chesskraft.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -39,6 +40,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -391,6 +393,8 @@ private fun PlayerStrip(
     ) {
         TurnDot(active = active, description = if (active) "$name to move." else "$name waiting.")
         Spacer(Modifier.size(KraftSpacing.Spacing8))
+        PlayerAvatar(victimSide = victimSide, label = name)
+        Spacer(Modifier.size(KraftSpacing.Spacing8))
         Text(
             text = name,
             style = MaterialTheme.typography.labelMedium.copy(
@@ -423,6 +427,25 @@ private fun PlayerStrip(
                 color = MaterialTheme.colorScheme.primary,
             )
         }
+    }
+}
+
+@Composable
+private fun PlayerAvatar(victimSide: Side, label: String) {
+    // Your army's king as your face; the computer's king as its face.
+    // Chess.com puts a face next to every name; ours is the army itself.
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(KraftSpacing.Spacing32)
+            .clip(RoundedCornerShape(KraftRadius.Pill))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .semantics { contentDescription = "Avatar for $label." },
+    ) {
+        PieceMark(
+            code = PieceCode.of(victimSide.opponent(), PieceType.KING),
+            modifier = Modifier.size(KraftSpacing.Spacing24),
+        )
     }
 }
 

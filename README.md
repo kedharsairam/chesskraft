@@ -13,3 +13,7 @@ Private chess coach. Offline-first, zero permissions, no account, no ads, no tra
 
 None. The manifest declares zero `uses-permission`. If one ever appears, this line is false
 and a test must fail.
+
+## Credits
+
+Piece art by Colin M.L. Burnett (Cburnett), BSD-licensed — see NOTICE.

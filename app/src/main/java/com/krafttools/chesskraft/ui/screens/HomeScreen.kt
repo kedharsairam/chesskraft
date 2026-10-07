@@ -143,7 +143,7 @@ private fun HeaderBlock() {
             ),
     ) {
         PieceMark(
-            code = PieceCode.of(Side.BLACK, PieceType.KNIGHT),
+            code = PieceCode.of(Side.WHITE, PieceType.KNIGHT),
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .offset(y = KraftSpacing.Spacing32)

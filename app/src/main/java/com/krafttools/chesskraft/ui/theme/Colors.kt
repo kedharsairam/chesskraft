@@ -19,15 +19,24 @@ import com.kraft.ui.theme.KraftColorSchemes
 object ChessKraftColors {
 
     /**
-     * The accent: tournament brass.
+     * The accent: chess green.
      *
-     * Chess is wood boards, brass tournament clocks, and warm hall light — not an
-     * instrument readout. Brass reads as deliberate and calm on a dark board and is
-     * deliberately unlike the sibling accents (KraftTools instrument-cyan, kraft-ui
-     * amber, PulseKraft blue-violet) so the apps are never confused on a phone screen.
+     * The app speaks chess.com's visual language, and in that language green
+     * means go — Play, selected, your turn. #81B64C with near-black ink
+     * (6.6:1) where chess.com itself ships white-on-green below AA; same hue
+     * family, honest contrast. Deliberately unlike the sibling accents
+     * (KraftTools cyan, kraft-ui amber, PulseKraft blue-violet) so the apps
+     * are never confused on a phone screen.
      */
-    val Accent = Color(0xFFD8B45A)
-    val OnAccent = Color(0xFF241A08)
+    val Accent = Color(0xFF81B64C)
+    val OnAccent = Color(0xFF16210C)
+
+    /**
+     * Tournament gold. Felt-side decor only — board frame, last-move wash,
+     * watermark — never actions or selections. Gold on green felt is the
+     * tournament hall; green is the app talking to you.
+     */
+    val FeltGold = Color(0xFFD8B45A)
 
     // Board felt: tournament green — light #EEEED2 over dark #769656.
     // Adjacent-square contrast is ~2.8:1, the strongest mainstream default:
