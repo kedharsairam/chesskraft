@@ -630,12 +630,12 @@ private const val CheckRayInner = 0.36f
 private const val CheckRayOuter = 0.47f
 private const val Diagonal = 0.7071f
 private const val RingWidth = 0.055f
-private const val LastMoveAlpha = 0.41f
+private const val LastMoveAlpha = 0.30f
 private const val SelectedWashAlpha = 0.50f
 private const val PulseSpread = 0.10f
 private const val PulseMaxAlpha = 0.7f
-private const val HintAlpha = 0.22f
-private const val CoordPad = 0.06f
+private const val HintAlpha = 0.18f
+private const val CoordPad = 0.07f
 private const val CaptureFlashMax = 0.9f
 
 // Drag feel. Ratios of the square, not dp: a lift is a component metric (how

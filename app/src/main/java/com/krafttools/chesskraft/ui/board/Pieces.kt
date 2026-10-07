@@ -114,4 +114,4 @@ fun DrawScope.drawArtPiece(art: Map<Int, ImageBitmap>, code: Int, center: Offset
     )
 }
 
-private const val PieceArtScale = 0.98f
+private const val PieceArtScale = 0.88f

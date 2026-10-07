@@ -24,7 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -83,6 +83,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.width
 import com.kraft.ui.tokens.KraftIconSize
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
@@ -467,45 +468,76 @@ private fun SideChrome(
 @Composable
 private fun MoveStrip(sans: List<String>, modifier: Modifier = Modifier) {
     if (sans.isEmpty()) return
-    val pairs = remember(sans) {
+    val rows = remember(sans) {
         buildList {
             var i = 0
             while (i < sans.size) {
-                val n = i / 2 + 1
-                val w = sans[i]
-                val b = sans.getOrNull(i + 1)
-                add("$n. $w${if (b != null) " $b" else ""}")
+                add(Triple(i / 2 + 1, sans[i], sans.getOrNull(i + 1)))
                 i += 2
             }
         }
     }
     val listState = rememberLazyListState()
-    LaunchedEffect(pairs.size) {
-        if (pairs.isNotEmpty()) listState.scrollToItem(pairs.size - 1)
+    LaunchedEffect(rows.size) {
+        if (rows.isNotEmpty()) listState.scrollToItem(rows.size - 1)
     }
-    LazyRow(
+    // Two columns of numbered move pairs, the way chess.com prints them, so the
+    // game reads as a page of moves rather than a ticker. Latest move is the one
+    // thing in the app's green.
+    LazyColumn(
         state = listState,
-        horizontalArrangement = Arrangement.spacedBy(KraftSpacing.Spacing8),
         modifier = modifier
             .padding(horizontal = KraftSpacing.ScreenEdge, vertical = KraftSpacing.Spacing4)
             .semantics(mergeDescendants = true) {
-                contentDescription = "Moves so far. ${pairs.takeLast(3).joinToString(", ")}."
+                contentDescription = "Moves so far. ${rows.takeLast(3).joinToString(", ")}."
             },
     ) {
-        items(pairs.size) { index ->
-            val current = index == pairs.size - 1
-            Text(
-                text = pairs[index],
-                style = MaterialTheme.typography.labelMedium.copy(
-                    fontWeight = if (current) FontWeight.SemiBold else FontWeight.Normal,
-                ),
-                color = if (current) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                maxLines = 1,
-            )
+        items(rows.size) { index ->
+            val (number, white, black) = rows[index]
+            val current = index == rows.size - 1
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(KraftSpacing.Spacing8),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = "$number.",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    modifier = Modifier.width(MoveNumberWidth),
+                )
+                Text(
+                    text = white,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontWeight = if (current && black == null) {
+                            FontWeight.SemiBold
+                        } else {
+                            FontWeight.Normal
+                        },
+                    ),
+                    color = if (current && black == null) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = black.orEmpty(),
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontWeight = if (current && black != null) FontWeight.SemiBold else FontWeight.Normal,
+                    ),
+                    color = if (current && black != null) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
     }
 }
@@ -910,6 +942,8 @@ private fun ToolbarIcon(
 /** Board share of the width budget in landscape; the rest is strips + status. */
 private const val BoardLandscapeFraction = 0.62f
 private const val CheckHapticGapMs = 90L
+/** Number column in the move panel — wide enough for three digits. */
+private val MoveNumberWidth = KraftSpacing.Spacing24
 /** Under twenty seconds the pill goes red. Twenty, not ten: at ten the game is already panic. */
 private const val ClockLowMs = 20_000L
 /** Four beats a second: a second-resolution clock does not need more, and 250ms keeps the pill from stuttering. */
