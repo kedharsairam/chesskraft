@@ -5,11 +5,17 @@
 package com.krafttools.chesskraft.presentation
 
 import androidx.lifecycle.ViewModel
+import com.kraft.core.KraftResult
 import androidx.lifecycle.viewModelScope
+import com.krafttools.chesskraft.data.GameStore
+import com.krafttools.chesskraft.data.InMemoryGameStore
 import com.krafttools.chesskraft.domain.ChessMove
 import com.krafttools.chesskraft.domain.ChessClock
+import com.krafttools.chesskraft.domain.FinishedGame
 import com.krafttools.chesskraft.domain.GameResult
+import com.krafttools.chesskraft.domain.GameSave
 import com.krafttools.chesskraft.domain.GameTree
+import com.krafttools.chesskraft.domain.SavedGame
 import com.krafttools.chesskraft.domain.PieceCode
 import com.krafttools.chesskraft.domain.PieceType
 import com.krafttools.chesskraft.domain.Position
@@ -38,20 +44,60 @@ import kotlin.math.abs
  * from the domain (never the board), and the engine only ever sees FEN.
  */
 class GameViewModel(
-    val playerSide: Side = Side.WHITE,
-    val difficulty: Difficulty = Difficulty.CASUAL,
+    playerSide: Side = Side.WHITE,
+    difficulty: Difficulty = Difficulty.CASUAL,
     private val engine: Engine = FakeEngine(),
     private val aiDispatcher: CoroutineDispatcher = Dispatchers.Default,
     var soundPlayer: SoundPlayer? = null,
-    private val timeControlMs: Long? = null,
+    timeControlMs: Long? = null,
     private val clockTickMs: Long = 100L,
     private val nowMs: () -> Long = { System.currentTimeMillis() },
+    /**
+     * Where the game is saved. Defaults to a store that keeps nothing, so a
+     * ViewModel built without one still works and a test can pass its own.
+     */
+    private val store: GameStore = InMemoryGameStore(),
 ) : ViewModel() {
-    private val tree = GameTree()
+    // Not vals: a restored game brings its own settings, and everything
+    // downstream — legality, the status line, the search limits, the save —
+    // reads these rather than the constructor arguments.
+    /**
+     * Which side the player is on. Restoring a saved game sets this, so it is
+     * the value the whole ViewModel is working from, not the one it was built
+     * with.
+     */
+    var playerSide: Side = playerSide
+        private set
+
+    var difficulty: Difficulty = difficulty
+        private set
+
+    var timeControlMs: Long? = timeControlMs
+        private set
+
+    // Not a val: restoring a saved game replaces the tree wholesale with one that
+    // has already replayed the saved moves through the rules.
+    private var tree: GameTree = GameTree()
     private var clock: ChessClock? = null
     private var clockStartedAtMs: Long? = null
     /** Set when a clock flags; the tree position itself is not terminal. */
     private var flagLoser: Side? = null
+
+    /**
+     * Finished games, newest first, cached from the store so that saving a move
+     * never has to re-read the file. [historyLoaded] is what stops the first
+     * save from writing an empty history over the one already on disk.
+     */
+    private var history: List<FinishedGame> = emptyList()
+
+    private var historyLoaded: Boolean = false
+
+    /**
+     * The result already written to the history. A game-over path can be reached
+     * twice for one game — the sheet asks, and so does the state refresh — and
+     * the history should hold the game once.
+     */
+    private var recordedResult: GameResult? = null
 
     private val _state = MutableStateFlow(
         GameUiState(playerSide = playerSide, difficulty = difficulty),
@@ -150,6 +196,8 @@ class GameViewModel(
             drawOfferPending = false,
         )
         refresh()
+        // An undo changes the position, so the save has to follow it back.
+        saveProgress()
     }
 
     /** Shows the engine's suggestion until the next tap. The stub answers. */
@@ -199,6 +247,7 @@ class GameViewModel(
                 _state.value = _state.value.copy(result = GameResult.DrawAgreed)
                 playResultCue()
                 refreshStatus()
+                recordFinishedGame()
             }
         }
     }
@@ -231,10 +280,14 @@ class GameViewModel(
     fun newGame() {
         while (tree.canUndo()) tree.undoPly()
         flagLoser = null
+        recordedResult = null
         _state.value = GameUiState(playerSide = playerSide, difficulty = difficulty)
         refresh()
         requestEval()
         startClockIfNeeded()
+        // The old game is gone, so the save must not still offer it for resume.
+        // This is a position change like any other and is written the same way.
+        saveProgress()
         maybeAiMove()
     }
 
@@ -247,6 +300,7 @@ class GameViewModel(
         )
         playResultCue()
         refreshStatus()
+        recordFinishedGame()
     }
 
     fun flip() {
@@ -334,12 +388,24 @@ class GameViewModel(
             playResultCue()
             refresh()
             refreshStatus()
+            // The game ended on the clock, so both banks are recorded here — the
+            // only time a clock value is written outside a move boundary.
+            recordFinishedGame()
         }
     }
 
-    /** Begins (or resumes) measuring the current turn for the UI ticker. */
+    /**
+     * Begins (or resumes) measuring the current turn for the UI ticker.
+     *
+     * The heartbeat calls this on every tick, so it is also the save point only
+     * when a turn genuinely starts — that is, when no segment was already
+     * running. Saving on every call would be four disk writes a second, which is
+     * the one thing persistence here must not cost.
+     */
     fun markClockStart(nowMs: Long) {
+        val startingNewTurn = clockStartedAtMs == null
         if (clock != null && flagLoser == null) clockStartedAtMs = nowMs
+        if (startingNewTurn) saveProgress()
     }
 
     fun clockStartedAt(): Long? = clockStartedAtMs
@@ -364,6 +430,9 @@ class GameViewModel(
         playMoveCue(before, tree.current(), isCapture(before, move))
         stopClockSegment()
         refresh()
+        // A move boundary: both clock banks are what they will be recorded as.
+        saveProgress()
+        recordFinishedGame()
         maybeAiMove()
     }
 
@@ -408,6 +477,14 @@ class GameViewModel(
         viewModelScope.launch {
             val fen = position.toFen()
             val reply = withContext(aiDispatcher) { askEngine(fen) }
+            // The answer is about [fen]. If the board has moved on — an undo, a
+            // new game, a restore — applying it here would play a reply to a
+            // position the engine never saw, so it is dropped instead.
+            if (tree.currentFen() != fen) {
+                _state.value = _state.value.copy(aiThinking = false)
+                refresh()
+                return@launch
+            }
             // Judge the reply against the position the engine actually answered
             // for, not against a tree that may have moved on underneath it.
             val move = coerceEngineMove(position, reply)
@@ -418,6 +495,10 @@ class GameViewModel(
             stopClockSegment()
             _state.value = _state.value.copy(aiThinking = false)
             refresh()
+            // Same reason as the player's move: this is a move boundary, so the
+            // save reflects the position the computer left.
+            saveProgress()
+            recordFinishedGame()
             requestEval()
         }
     }
@@ -606,7 +687,204 @@ class GameViewModel(
         if (ok) refresh()
         return ok
     }
+
+    // -- Persistence ------------------------------------------------------
+
+    /**
+     * Writes the in-progress game to the store.
+     *
+     * Called on the events that change what a restore would produce — a move, an
+     * undo, a new game, a turn starting — and never on a clock tick, which would
+     * be a disk write four times a second for a number nobody reads that often.
+     * The JSON is a few hundred bytes; writing it inline on the calling thread
+     * costs far less than introducing a dispatcher to move it off.
+     *
+     * A store that fails is not worth breaking a move over, so the result is
+     * ignored here. The next save is another chance.
+     */
+    fun saveProgress() {
+        val current = _state.value
+        store.save(
+            GameSave(
+                inProgress = SavedGame(
+                    playerSide = playerSide,
+                    difficulty = difficulty,
+                    flipped = current.flipped,
+                    timeControlMs = timeControlMs,
+                    clockWhiteMs = current.clockWhiteMs,
+                    clockBlackMs = current.clockBlackMs,
+                    moves = tree.uciList(),
+                ),
+                history = cachedHistory(),
+            ),
+        )
+    }
+
+    /**
+     * Forgets the in-progress game but keeps the finished-game history.
+     *
+     * Used when the player declines to resume: the next game must not offer the
+     * one they walked away from, and losing their record of finished games to
+     * the same action would be a poor trade.
+     */
+    fun clearProgress() {
+        store.save(GameSave(inProgress = null, history = cachedHistory()))
+    }
+
+    /**
+     * Replays a saved game and hands back the settings it was saved with.
+     *
+     * Null for every reason a resume should not happen: nothing saved, a save
+     * this build cannot read, a move list that no longer replays legally. All of
+     * them answer null rather than throwing, because this is on the launch path
+     * and a corrupt file must cost the player a game, not the app.
+     *
+     * The moves are re-applied to a fresh tree and the position is re-derived by
+     * the rules, so what comes back is the rules' own position — the save cannot
+     * assert a board.
+     */
+    suspend fun restore(): RestoredGame? = try {
+        val save = (store.load() as? KraftResult.Success)?.data ?: return null
+        val saved = save.inProgress ?: return null
+        val replayed = replayFromStart(saved.moves) ?: return null
+        history = save.history
+        historyLoaded = true
+        applyRestored(saved, replayed)
+        RestoredGame(
+            difficulty = saved.difficulty,
+            playerSide = saved.playerSide,
+            flipped = saved.flipped,
+            timeControlMs = saved.timeControlMs,
+            clockWhiteMs = saved.clockWhiteMs,
+            clockBlackMs = saved.clockBlackMs,
+            moves = saved.moves,
+        )
+    } catch (e: RuntimeException) {
+        // Belt and braces. Every step above already answers null rather than
+        // throwing — a corrupt save must cost the player their game, not the
+        // launch — and this is the last thing between a hand-edited file and a
+        // crash on the way in.
+        null
+    }
+
+    /**
+     * Replays [ucis] from the standard start position.
+     *
+     * A move that no longer parses or no longer applies means the save is not
+     * this build's save, or was written by rules that have since changed. Both
+     * are answered with null: the honest response to a game that cannot be
+     * rebuilt is to start a new one.
+     */
+    private fun replayFromStart(ucis: List<String>): GameTree? {
+        val replayed = GameTree()
+        for (uci in ucis) {
+            val move = parseUci(uci) ?: return null
+            if (replayed.apply(move) == null) return null
+        }
+        return replayed
+    }
+
+    /**
+     * Puts a replayed game back in front of the player, clocks and settings
+     * included.
+     *
+     * The saved side and difficulty are adopted rather than merely reported:
+     * legality, the status line and the search limits all read them, so leaving
+     * the constructor's values in place would have the restored game judged as
+     * the wrong player.
+     */
+    private fun applyRestored(saved: SavedGame, replayed: GameTree) {
+        playerSide = saved.playerSide
+        difficulty = saved.difficulty
+        timeControlMs = saved.timeControlMs
+        val restoredClock = if (saved.timeControlMs != null) {
+            ChessClock(saved.timeControlMs, saved.timeControlMs)
+                .also { clock ->
+                    if (saved.clockWhiteMs != null && saved.clockBlackMs != null) {
+                        clock.restore(saved.clockWhiteMs, saved.clockBlackMs)
+                    }
+                }
+        } else {
+            null
+        }
+        clock = restoredClock
+        clockStartedAtMs = null
+        flagLoser = null
+        recordedResult = null
+        tree = replayed
+        _state.value = _state.value.copy(
+            playerSide = saved.playerSide,
+            difficulty = saved.difficulty,
+            flipped = saved.flipped,
+            clockWhiteMs = restoredClock?.whiteMs,
+            clockBlackMs = restoredClock?.blackMs,
+        )
+        refresh()
+        // The app may have been killed with the computer's move still owed — the
+        // player had just moved when the process went. Asking for it here is the
+        // only thing that gets the game moving again; if it is the player's
+        // turn, this returns without searching.
+        maybeAiMove()
+    }
+
+    /**
+     * Pushes the finished game into the history and clears the in-progress save,
+     * so a game that is over is not also offered for resuming.
+     *
+     * Called for every ending — checkmate, stalemate, the draws, a resign, a
+     * flag — and writes one entry per game: [recordedResult] remembers what was
+     * written, because the game-over state is reached from more than one path
+     * and the history should not gain the same game twice.
+     *
+     * Does nothing when the game has not ended. A caller can wire this to any
+     * game-over event without having to know whether it is the first one.
+     */
+    fun recordFinishedGame() {
+        val result = _state.value.result ?: return
+        if (recordedResult == result) return
+        recordedResult = result
+        val finished = GameSave(inProgress = null, history = cachedHistory()).withFinished(
+            FinishedGame(
+                result = result.title,
+                moveCount = tree.plyCount,
+                difficulty = difficulty,
+                playerSide = playerSide,
+                endedAtMs = nowMs(),
+            ),
+        )
+        history = finished.history
+        store.save(finished)
+    }
+
+    /**
+     * The finished-game history, read once.
+     *
+     * The first call loads it from the store; after that the cached copy is
+     * authoritative, because this runs inside every save and re-reading the file
+     * on each move would be a read per move for a list that changes once per
+     * game. A failed load is an empty history — losing a record is better than
+     * losing the game being saved.
+     */
+    private fun cachedHistory(): List<FinishedGame> {
+        if (!historyLoaded) {
+            history = (store.load() as? KraftResult.Success)?.data?.history ?: emptyList()
+            historyLoaded = true
+        }
+        return history
+    }
 }
+
+/** A game picked back up, with the settings it was left on. */
+data class RestoredGame(
+    val difficulty: Difficulty,
+    val playerSide: Side,
+    val flipped: Boolean,
+    val timeControlMs: Long?,
+    val clockWhiteMs: Long?,
+    val clockBlackMs: Long?,
+    /** UCI moves, oldest first. */
+    val moves: List<String>,
+)
 
 /**
  * The computer's bar for agreeing to a draw, in centipawns.

@@ -4,6 +4,10 @@
  */
 package com.krafttools.chesskraft.domain
 
+import com.kraft.core.AppError
+import com.kraft.core.KraftResult
+import com.krafttools.chesskraft.engine.Difficulty
+
 /**
  * Game outcome in plain words. The UI renders [title] big and [reason] small —
  * never a bare "1-0" or a code.
@@ -86,6 +90,14 @@ class GameTree(start: Position = Position.start()) {
     fun currentFen(): String = current().toFen()
 
     fun sanList(): List<String> = sans.toList()
+
+    /**
+     * The move list as UCI ("e2e4", "e7e8q"). This is what gets persisted:
+     * replaying UCI from the start position is the only save format that cannot
+     * disagree with the rules, because the rules re-derive every position from
+     * it. A stored FEN list could drift from a buggy version; this cannot.
+     */
+    fun uciList(): List<String> = ucis.toList()
 
     fun fenHistory(): List<String> = positions.map { it.toFen() }
 

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -39,6 +40,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import com.kraft.ui.tokens.KraftRadius
@@ -76,6 +79,8 @@ enum class TimeChoice(val label: String, val ms: Long?) {
 fun HomeScreen(
     onPlay: (Difficulty, Side, Boolean, Long?) -> Unit,
     modifier: Modifier = Modifier,
+    saved: Boolean = false,
+    onContinue: (() -> Unit)? = null,
 ) {
     var difficulty by remember { mutableStateOf(Difficulty.CASUAL) }
     var sideChoice by remember { mutableStateOf(SideChoice.WHITE) }
@@ -89,6 +94,10 @@ fun HomeScreen(
                 .verticalScroll(rememberScrollState()),
         ) {
             HeaderBlock()
+            if (saved && onContinue != null) {
+                Spacer(Modifier.height(KraftSpacing.Spacing16))
+                ContinueCard(onContinue = onContinue)
+            }
             Spacer(Modifier.height(KraftSpacing.Spacing24))
             SetupCard(
                 difficulty = difficulty,
@@ -193,6 +202,66 @@ private fun HeaderBlock() {
  * One inset grouped card: the whole setup lives in a single tappable-feeling
  * surface with hairline dividers, not three loose sections on black.
  */
+/**
+ * The unfinished game, offered first. A card rather than a button: it says what
+ * is waiting, and it is the only thing on this screen that is not a choice
+ * between new games.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun ContinueCard(onContinue: () -> Unit) {
+    val shape = RoundedCornerShape(KraftRadius.Large)
+    val outline = BorderStroke(
+        KraftSpacing.BorderWidth,
+        MaterialTheme.colorScheme.primary,
+    )
+    Card(
+        onClick = onContinue,
+        shape = shape,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ),
+        border = outline,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = KraftSpacing.ScreenEdge)
+            .heightIn(min = KraftSpacing.Spacing56)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Continue your unfinished game."
+            },
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(
+                horizontal = KraftSpacing.Spacing16,
+                vertical = KraftSpacing.Spacing12,
+            ),
+        ) {
+            PieceMark(
+                code = PieceCode.of(Side.WHITE, PieceType.KING),
+                modifier = Modifier.size(KraftSpacing.Spacing32),
+            )
+            Spacer(Modifier.size(KraftSpacing.Spacing12))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = "Unfinished game",
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                )
+                Text(
+                    text = "Pick up where you left off.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun SetupCard(
     difficulty: Difficulty,

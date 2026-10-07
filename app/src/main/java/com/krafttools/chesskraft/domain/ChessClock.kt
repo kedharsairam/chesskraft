@@ -16,6 +16,20 @@ class ChessClock(firstMs: Long, secondMs: Long) {
     var blackMs: Long = secondMs
         private set
 
+    /**
+     * Puts both banks back to the values a save carried.
+     *
+     * A resumed game must not hand back the time its opponent has already spent
+     * — that would be a free move — so this is a plain assignment rather than
+     * an offset from the constructor's starting banks. Negative values are
+     * clamped to zero: a save written by a future version, or edited by hand,
+     * must not produce a clock that counts upward.
+     */
+    fun restore(white: Long, black: Long) {
+        whiteMs = white.coerceAtLeast(0L)
+        blackMs = black.coerceAtLeast(0L)
+    }
+
     /** Burns [elapsedMs] from [side]'s bank. Returns the flagged side, if any. */
     fun tick(side: Side, elapsedMs: Long): Side? {
         if (side == Side.WHITE) {
