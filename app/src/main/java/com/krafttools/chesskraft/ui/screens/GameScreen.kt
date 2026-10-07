@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -186,7 +187,12 @@ fun GameScreen(
                 // spare pixels collect in ONE place — under the status, where
                 // the move list lives. Centring split the slack in half and
                 // left a void above and below.
-                Column(modifier = Modifier.fillMaxSize()) {
+                // wrapContentHeight, not fillMaxSize: this Column is the only
+                // sized child of an unweighted Box, so fillMaxSize claimed all
+                // the height it could reach and left the move-list box below
+                // with none — the list rendered nothing at all, on a board that
+                // looked perfect.
+                Column(modifier = Modifier.wrapContentHeight()) {
                     BoardChrome(
                         state = state,
                         playerSide = viewModel.playerSide,
@@ -224,7 +230,7 @@ fun GameScreen(
         // The bottom of the screen belongs to the game story: the move list
         // sits in the slack under the board, where chess.com puts its panel.
         Box(Modifier.weight(1f)) {
-            MoveStrip(sans = state.sans)
+            MoveStrip(sans = state.sans, modifier = Modifier.fillMaxSize())
         }
 
         ToolbarRow(
@@ -442,7 +448,7 @@ private fun SideChrome(
  * snap (never animated scroll) so reduce-motion has nothing to gate.
  */
 @Composable
-private fun MoveStrip(sans: List<String>) {
+private fun MoveStrip(sans: List<String>, modifier: Modifier = Modifier) {
     if (sans.isEmpty()) return
     val pairs = remember(sans) {
         buildList {
@@ -463,8 +469,7 @@ private fun MoveStrip(sans: List<String>) {
     LazyRow(
         state = listState,
         horizontalArrangement = Arrangement.spacedBy(KraftSpacing.Spacing8),
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = modifier
             .padding(horizontal = KraftSpacing.ScreenEdge, vertical = KraftSpacing.Spacing4)
             .semantics(mergeDescendants = true) {
                 contentDescription = "Moves so far. ${pairs.takeLast(3).joinToString(", ")}."
