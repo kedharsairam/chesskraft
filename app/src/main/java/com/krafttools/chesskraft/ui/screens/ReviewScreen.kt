@@ -5,209 +5,83 @@
 package com.krafttools.chesskraft.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import com.kraft.ui.components.KraftTopBar
-import com.kraft.ui.motion.rememberReduceMotion
 import com.kraft.ui.tokens.KraftRadius
 import com.kraft.ui.tokens.KraftSpacing
-import com.krafttools.chesskraft.domain.Position
+import com.kraft.ui.tokens.KraftTypeScale
+import com.krafttools.chesskraft.domain.GameReviewResult
+import com.krafttools.chesskraft.domain.MoveVerdict
+import com.krafttools.chesskraft.domain.ReviewedMove
 import com.krafttools.chesskraft.domain.Side
-import com.krafttools.chesskraft.presentation.GameUiState
-import com.krafttools.chesskraft.ui.board.ChessBoard
+import com.krafttools.chesskraft.ui.theme.ChessKraftColors
 
 /**
- * Review. The finished game as a move list with step back/forward and flip.
- * Read-only board — taps do nothing. No eval bar in v1.
+ * Post-game review: what happened and why it mattered.
  *
- * Static text is always on-surface; the only coloured element is the marker
- * on the row showing the current position.
+ * Verdict first, in plain words, because the reader is learning. Colour is
+ * redundant — every verdict ships a word, so a colourblind reader and a
+ * screen-reader user get the same information. Accuracy is a chess.com-style
+ * approximation (see GameReview's KDoc), stated as such rather than implied
+ * to be the identical metric.
  */
 @Composable
 fun ReviewScreen(
-    fens: List<String>,
-    sans: List<String>,
+    review: GameReviewResult,
     playerSide: Side,
-    onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (fens.isEmpty()) {
-        EmptyReview(onBack = onBack, modifier = modifier)
-        return
-    }
-    var index by remember(fens) { mutableIntStateOf(fens.size - 1) }
-    var flipped by remember { mutableStateOf(false) }
-    val listState = rememberLazyListState()
-    val reduceMotion = rememberReduceMotion()
-
-    val position = remember(fens, index) {
-        Position.fromFen(fens[index.coerceIn(fens.indices)]).getOrNull()
-            ?: Position.start()
-    }
-    val reviewState = remember(position, flipped) {
-        GameUiState(
-            pieces = position.board.toList(),
-            sideToMove = position.sideToMove,
-            playerSide = playerSide,
-            flipped = flipped,
-            statusText = reviewStatus(index, sans.size),
-            sans = sans.take(index.coerceIn(0, sans.size)),
-        )
-    }
-
-    LaunchedEffect(index) {
-        if (sans.isNotEmpty()) {
-            val row = (index.coerceIn(1, sans.size) - 1) / 2
-            if (reduceMotion) {
-                listState.scrollToItem(row)
-            } else {
-                listState.animateScrollToItem(row)
-            }
-        }
-    }
-
-    Column(modifier = modifier.fillMaxSize()) {
-        KraftTopBar(
-            title = "Review",
-            actions = {
-                TextButton(
-                    onClick = onBack,
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.onSurface,
-                    ),
-                    modifier = Modifier.semantics(mergeDescendants = true) {
-                        contentDescription = "Done. Back to home."
-                    },
-                ) {
-                    Text("Done")
-                }
-            },
-        )
-        ChessBoard(
-            state = reviewState,
-            onTap = {},
-            onDrop = { _, _ -> },
-            interactive = false,
-            modifier = Modifier.padding(horizontal = KraftSpacing.Spacing16),
-        )
-        Spacer(Modifier.height(KraftSpacing.Spacing8))
-        Text(
-            text = reviewStatus(index, sans.size),
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .fillMaxWidth()
-                .semantics(mergeDescendants = true) {
-                    contentDescription = "Review position. ${reviewStatus(index, sans.size)}"
-                },
-        )
-        Spacer(Modifier.height(KraftSpacing.Spacing8))
-        Row(
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            TextButton(
-                onClick = { index = (index - 1).coerceAtLeast(0) },
-                enabled = index > 0,
-                colors = ButtonDefaults.textButtonColors(
-                    contentColor = MaterialTheme.colorScheme.onSurface,
-                ),
-                modifier = Modifier
-                    .height(KraftSpacing.Spacing48)
-                    .semantics(mergeDescendants = true) {
-                        contentDescription = "Back. Show the previous move."
-                    },
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .statusBarsPadding(),
+    ) {
+        ReviewHeader(review, playerSide)
+        if (review.moves.isEmpty()) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.fillMaxSize(),
             ) {
-                Text("Back")
+                Text(
+                    text = "No moves to review.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            TextButton(
-                onClick = { flipped = !flipped },
-                colors = ButtonDefaults.textButtonColors(
-                    contentColor = MaterialTheme.colorScheme.onSurface,
-                ),
-                modifier = Modifier
-                    .height(KraftSpacing.Spacing48)
-                    .semantics(mergeDescendants = true) {
-                        contentDescription = "Flip. Turn the board around."
-                    },
-            ) {
-                Text("Flip")
-            }
-            TextButton(
-                onClick = { index = (index + 1).coerceAtMost(fens.size - 1) },
-                enabled = index < fens.size - 1,
-                colors = ButtonDefaults.textButtonColors(
-                    contentColor = MaterialTheme.colorScheme.onSurface,
-                ),
-                modifier = Modifier
-                    .height(KraftSpacing.Spacing48)
-                    .semantics(mergeDescendants = true) {
-                        contentDescription = "Forward. Show the next move."
-                    },
-            ) {
-                Text("Forward")
-            }
-        }
-        Spacer(Modifier.height(KraftSpacing.Spacing8))
-        if (sans.isEmpty()) {
-            Text(
-                text = "No moves yet — the game ended before it began.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = KraftSpacing.Spacing16),
-            )
         } else {
-            val rows = remember(sans) { sans.chunked(2) }
             LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .navigationBarsPadding()
-                    .padding(bottom = KraftSpacing.Spacing8)
-                    .padding(horizontal = KraftSpacing.Spacing16),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    horizontal = KraftSpacing.ScreenEdge,
+                    vertical = KraftSpacing.Spacing8,
+                ),
+                modifier = Modifier.fillMaxSize(),
             ) {
-                itemsIndexed(rows, key = { rowNumber, _ -> rowNumber }) { moveNumber, pair ->
-                    val plyBase = moveNumber * 2
-                    MoveRow(
-                        moveNumber = moveNumber,
-                        pair = pair,
-                        current = isCurrentRow(index, plyBase, pair.size, sans.size),
-                        onJump = { index = (plyBase + pair.size).coerceAtMost(sans.size) },
-                    )
+                items(review.moves.size) { index ->
+                    val move = review.moves[index]
+                    ReviewRow(move, isPlayerMove = move.isPlayerMove(playerSide))
                 }
             }
         }
@@ -215,118 +89,176 @@ fun ReviewScreen(
 }
 
 @Composable
-private fun MoveRow(
-    moveNumber: Int,
-    pair: List<String>,
-    current: Boolean,
-    onJump: () -> Unit,
-) {
+private fun ReviewHeader(review: GameReviewResult, playerSide: Side) {
+    Column(modifier = Modifier.padding(horizontal = KraftSpacing.ScreenEdge)) {
+        Text(
+            text = "Game review",
+            style = MaterialTheme.typography.displayLarge.copy(
+                fontWeight = FontWeight.Bold,
+            ),
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+        )
+        Spacer(Modifier.height(KraftSpacing.Spacing4))
+        Text(
+            text = "Your accuracy against the engine's best moves.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(KraftSpacing.Spacing16))
+        Row(horizontalArrangement = Arrangement.spacedBy(KraftSpacing.Spacing8)) {
+            AccuracyTile(
+                label = "You",
+                accuracy = review.accuracyFor(playerSide),
+                tone = ChessKraftColors.Accent,
+            )
+            AccuracyTile(
+                label = "Computer",
+                accuracy = review.accuracyFor(playerSide.opponent()),
+                tone = MaterialTheme.colorScheme.outline,
+            )
+        }
+        Spacer(Modifier.height(KraftSpacing.Spacing16))
+        VerdictLegend()
+        Spacer(Modifier.height(KraftSpacing.Spacing8))
+    }
+}
+
+@Composable
+private fun AccuracyTile(label: String, accuracy: Int, tone: androidx.compose.ui.graphics.Color) {
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(KraftRadius.Standard))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .border(
+                KraftSpacing.BorderWidth,
+                MaterialTheme.colorScheme.outlineVariant,
+                RoundedCornerShape(KraftRadius.Standard),
+            )
+            .padding(horizontal = KraftSpacing.Spacing16, vertical = KraftSpacing.Spacing12)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "$label accuracy $accuracy percent."
+            },
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
+        Text(
+            text = "$accuracy%",
+            style = MaterialTheme.typography.headlineMedium,
+            color = tone,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+        )
+    }
+}
+
+/** Every verdict, spelled out, once — so the colours below need no decoder. */
+@Composable
+private fun VerdictLegend() {
+    Column(verticalArrangement = Arrangement.spacedBy(KraftSpacing.Spacing4)) {
+        for (verdict in MoveVerdict.entries) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                VerdictDot(verdict)
+                Spacer(Modifier.size(KraftSpacing.Spacing8))
+                Text(
+                    text = verdict.label(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReviewRow(move: ReviewedMove, isPlayerMove: Boolean) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = KraftSpacing.Spacing48)
-            .then(
-                if (current) {
-                    Modifier.background(
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        shape = RoundedCornerShape(KraftRadius.Standard),
-                    )
-                } else {
-                    Modifier
-                },
-            )
-            .clickable(
-                onClickLabel = "Show the position after ${pair.joinToString(" and ")}",
-                onClick = onJump,
-            )
-            .padding(
-                horizontal = KraftSpacing.Spacing8,
-                vertical = KraftSpacing.Spacing4,
-            )
+            .padding(vertical = KraftSpacing.Spacing6)
             .semantics(mergeDescendants = true) {
-                contentDescription = if (current) {
-                    "Move ${moveNumber + 1}, current position. ${pair.joinToString(", ")}."
-                } else {
-                    "Move ${moveNumber + 1}. ${pair.joinToString(", ")}."
+                contentDescription = buildString {
+                    append("Move ${move.number} ${move.san}, ${move.verdict.label()}. ")
+                    if (isPlayerMove) append("Yours. ") else append("Computer's. ")
+                    move.bestSan?.let { append("Better was $it.") }
                 }
             },
     ) {
         Text(
-            text = "${moveNumber + 1}.",
-            style = MaterialTheme.typography.bodyMedium.copy(
-                fontWeight = if (current) FontWeight.SemiBold else FontWeight.Normal,
-            ),
-            color = if (current) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = pair.getOrElse(0) { "" },
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(2f),
-        )
-        Text(
-            text = pair.getOrElse(1) { "" },
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(2f),
-        )
-    }
-}
-
-@Composable
-private fun EmptyReview(onBack: () -> Unit, modifier: Modifier = Modifier) {
-    Column(modifier = modifier.fillMaxSize()) {
-        KraftTopBar(title = "Review")
-        Text(
-            text = "Nothing to review yet.",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(
-                    horizontal = KraftSpacing.Spacing16,
-                    vertical = KraftSpacing.Spacing24,
-                ),
-        )
-        Text(
-            text = "Play at least one move and the game will show up here.",
-            style = MaterialTheme.typography.bodyMedium,
+            text = "${move.number}.",
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = KraftSpacing.Spacing16),
+            modifier = Modifier.size(VerdictNumberWidth),
         )
-        Spacer(Modifier.height(KraftSpacing.Spacing24))
-        TextButton(
-            onClick = onBack,
-            colors = ButtonDefaults.textButtonColors(
-                contentColor = MaterialTheme.colorScheme.onSurface,
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(KraftSpacing.Spacing48),
-        ) {
-            Text("Back")
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = move.san,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+            )
+            if (!isPlayerMove || move.verdict == MoveVerdict.BEST || move.bestSan == null) {
+                Spacer(Modifier.height(KraftSpacing.Spacing2))
+            } else {
+                Text(
+                    text = "Better: ${move.bestSan}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
         }
+        VerdictDot(move.verdict)
+        Spacer(Modifier.size(KraftSpacing.Spacing8))
+        Text(
+            text = move.verdict.label(),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+        )
     }
 }
 
-/** True when [index] sits on the position this row ends at. */
-private fun isCurrentRow(index: Int, plyBase: Int, pairSize: Int, totalPlies: Int): Boolean {
-    val rowEnd = (plyBase + pairSize).coerceAtMost(totalPlies)
-    return index == rowEnd
+/** Dot + word, never dot alone. */
+@Composable
+private fun VerdictDot(verdict: MoveVerdict) {
+    Box(
+        modifier = Modifier
+            .size(VerdictDotSize)
+            .clip(RoundedCornerShape(KraftRadius.Pill))
+            .background(verdictColor(verdict)),
+    )
 }
 
-private fun reviewStatus(index: Int, totalPlies: Int): String {
-    if (totalPlies == 0) return "No moves yet."
-    val shown = index.coerceIn(0, totalPlies)
-    return "Move $shown of $totalPlies."
+private fun ReviewedMove.isPlayerMove(playerSide: Side): Boolean =
+    (ply % 2 == 0) == (playerSide == Side.WHITE)
+
+private val VerdictDotSize = KraftSpacing.Spacing8
+private val VerdictNumberWidth = KraftSpacing.Spacing32
+
+internal fun MoveVerdict.label(): String = when (this) {
+    MoveVerdict.BEST -> "best"
+    MoveVerdict.GOOD -> "good"
+    MoveVerdict.INACCURACY -> "inaccuracy"
+    MoveVerdict.MISTAKE -> "mistake"
+    MoveVerdict.BLUNDER -> "blunder"
 }
+
+/** Green for praise, warm neutral for nitpicks, red for real damage. */
+@Composable
+internal fun verdictColor(verdict: MoveVerdict): androidx.compose.ui.graphics.Color = when (verdict) {
+    MoveVerdict.BEST -> ChessKraftColors.VerdictBest
+    MoveVerdict.GOOD -> ChessKraftColors.VerdictGood
+    MoveVerdict.INACCURACY -> ChessKraftColors.VerdictInaccuracy
+    MoveVerdict.MISTAKE -> ChessKraftColors.VerdictMistake
+    MoveVerdict.BLUNDER -> MaterialTheme.colorScheme.error
+}
+
+internal fun GameReviewResult.accuracyFor(side: Side): Int =
+    if (side == Side.WHITE) accuracyWhite else accuracyBlack

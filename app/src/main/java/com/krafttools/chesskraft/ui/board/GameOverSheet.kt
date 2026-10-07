@@ -51,6 +51,7 @@ fun GameOverSheet(
     onRematch: () -> Unit,
     onNewGame: () -> Unit,
     onReview: () -> Unit,
+    reviewRunning: Boolean,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -122,6 +123,7 @@ fun GameOverSheet(
             Spacer(Modifier.height(KraftSpacing.Spacing4))
             TextButton(
                 onClick = onReview,
+                enabled = !reviewRunning,
                 colors = ButtonDefaults.textButtonColors(
                     contentColor = MaterialTheme.colorScheme.onSurface,
                 ),
@@ -129,7 +131,7 @@ fun GameOverSheet(
                     .fillMaxWidth()
                     .height(KraftSpacing.Spacing48),
             ) {
-                Text("Review")
+                Text(if (reviewRunning) "Reading the game…" else "Review")
             }
         }
     }

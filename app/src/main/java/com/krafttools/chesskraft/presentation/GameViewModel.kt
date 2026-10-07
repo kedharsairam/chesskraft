@@ -22,6 +22,7 @@ import com.krafttools.chesskraft.domain.squareName
 import com.krafttools.chesskraft.engine.Difficulty
 import com.krafttools.chesskraft.engine.Engine
 import com.krafttools.chesskraft.engine.OwnEngine
+import com.krafttools.chesskraft.engine.SearchLimits
 import com.krafttools.chesskraft.engine.UciMove
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -175,6 +176,7 @@ class GameViewModel(
         val current = _state.value
         if (current.result != null) return
         _state.value = current.copy(result = GameResult.Resigned(playerResigned = true))
+        playResultCue()
         refreshStatus()
     }
 
@@ -191,6 +193,32 @@ class GameViewModel(
     /** Review hand-off: full FEN history plus the SAN list. */
     fun exportHistory(): Pair<List<String>, List<String>> =
         tree.fenHistory() to tree.sanList()
+
+    /**
+     * Review hand-off: the limits a review screen searches each position with.
+     * Depth 6 is deep enough to name the missed mate and the hanging queen —
+     * which is the whole point of reviewing — and 1.5s per position is the same
+     * ceiling the engine plays under, so grading a hundred-move game stays a
+     * bounded amount of work instead of a freeze. Never raised per difficulty:
+     * a review is a fact about the game, not about how the game was played.
+     */
+    /**
+     * Grades the finished game against the engine, one position at a time,
+     * on the AI dispatcher: N searches x 1.5s is far too long to hold the UI
+     * thread for. Returns null if there is nothing to grade.
+     */
+    suspend fun buildReview(): com.krafttools.chesskraft.domain.GameReviewResult? =
+        withContext(aiDispatcher) {
+            val sans = tree.sanList()
+            if (sans.isEmpty()) return@withContext null
+            com.krafttools.chesskraft.domain.GameReview.build(
+                fens = tree.fenHistory(),
+                sans = sans,
+                analyze = { fen -> engine.analyze(fen, reviewLimits()) },
+            )
+        }
+
+    fun reviewLimits(): SearchLimits = SearchLimits(maxDepth = 6, maxMillis = 1500L)
 
     // -- Clock ------------------------------------------------------------
 
@@ -234,6 +262,7 @@ class GameViewModel(
         if (flagged != null) {
             flagLoser = flagged
             clockStartedAtMs = null
+            playResultCue()
             refresh()
             refreshStatus()
         }
@@ -254,6 +283,8 @@ class GameViewModel(
     // -- Internals --------------------------------------------------------
 
     private fun playPlayerMove(move: ChessMove) {
+        // The position the move came from: a capture is only knowable against it.
+        val before = tree.current()
         if (tree.apply(move) == null) {
             _state.value = _state.value.copy(
                 nudgeToken = _state.value.nudgeToken + 1,
@@ -261,7 +292,7 @@ class GameViewModel(
             )
             return
         }
-        soundPlayer?.playTap()
+        playMoveCue(before, tree.current(), isCapture(before, move))
         stopClockSegment()
         refresh()
         maybeAiMove()
@@ -279,14 +310,51 @@ class GameViewModel(
         viewModelScope.launch {
             val fen = position.toFen()
             val reply = withContext(aiDispatcher) { askEngine(fen) }
-            val move = coerceEngineMove(tree.current(), reply)
-                ?: tree.current().generateLegalMoves().firstOrNull()
-            if (move != null) tree.apply(move)
-            soundPlayer?.playTap()
+            // Judge the reply against the position the engine actually answered
+            // for, not against a tree that may have moved on underneath it.
+            val move = coerceEngineMove(position, reply)
+                ?: position.generateLegalMoves().firstOrNull()
+            if (move != null && tree.apply(move) != null) {
+                playMoveCue(position, tree.current(), isCapture(position, move))
+            }
             stopClockSegment()
             _state.value = _state.value.copy(aiThinking = false)
             refresh()
         }
+    }
+
+    /**
+     * The player's move and the engine's reply are the same event from the
+     * board's point of view, so they share one call: [before] is the position
+     * the move was played from, [after] the one it produced, and [wasCapture] is
+     * the capture test run against [before]. The choice between cues is
+     * [cueFor]'s job, not this method's.
+     */
+    private fun playMoveCue(before: Position, after: Position, wasCapture: Boolean) {
+        soundPlayer?.playFor(
+            cueFor(
+                wasCapture = wasCapture,
+                isCheckNow = after.isInCheck(),
+                wasCheckBefore = before.isInCheck(),
+                resultJustArrived = tree.result(playerSide) != null,
+            ),
+        )
+    }
+
+    /**
+     * A game can also end without a move — a resign, or a flag. The board has
+     * not changed and no move was played, so the only fact here is the result,
+     * and the cue rule says what that sounds like.
+     */
+    private fun playResultCue() {
+        soundPlayer?.playFor(
+            cueFor(
+                wasCapture = false,
+                isCheckNow = tree.current().isInCheck(),
+                wasCheckBefore = false,
+                resultJustArrived = true,
+            ),
+        )
     }
 
     /**
@@ -300,8 +368,16 @@ class GameViewModel(
             ?: engine.findBestMove(fen, limitsFor(difficulty))
     }
 
-    private fun isCapture(move: ChessMove): Boolean {
-        val position = tree.current()
+    /** Capture test against the position as it stands now. */
+    private fun isCapture(move: ChessMove): Boolean = isCapture(tree.current(), move)
+
+    /**
+     * Was [move] a capture in [position]? Occupied square, or an en passant
+     * that takes a pawn off a square the move itself never touches. Callers
+     * that need this must pass the position *before* the move — afterwards the
+     * victim is gone and every move looks like a quiet one.
+     */
+    private fun isCapture(position: Position, move: ChessMove): Boolean {
         return position.board[move.to] != 0 ||
             (PieceCode.typeOf(position.board[move.from]) == PieceType.PAWN &&
                 move.to == position.epSquare)
@@ -433,7 +509,33 @@ class GameViewModel(
     }
 }
 
-/** Plain-English status line. No codes, noEval numbers. */
+/**
+ * The one rule that turns four facts about a just-played move into one cue.
+ * It lives outside the class because it is the part worth testing: audio has
+ * no place in a unit test, this does, and both call sites — the player's move
+ * and the engine's reply — must agree on it or the board will sound like two
+ * different games.
+ *
+ * Precedence runs most-consequential first, and only one cue ever plays. A
+ * finished game outranks everything (there is no move left to react to), then a
+ * check the player has to answer, then a capture, then an ordinary move. A
+ * check counts only when it is *new*: answering your own check while giving one
+ * is a single move, and alerting on both would train the player to ignore the
+ * alert.
+ */
+internal fun cueFor(
+    wasCapture: Boolean,
+    isCheckNow: Boolean,
+    wasCheckBefore: Boolean,
+    resultJustArrived: Boolean,
+): SoundCue = when {
+    resultJustArrived -> SoundCue.END
+    isCheckNow && !wasCheckBefore -> SoundCue.CHECK
+    wasCapture -> SoundCue.CAPTURE
+    else -> SoundCue.MOVE
+}
+
+/** Plain-English status line. No codes, no eval numbers. */
 fun statusText(position: Position, result: GameResult?, playerSide: Side): String {
     if (result != null) return result.title + " — " + result.reason
     val mover = if (position.sideToMove == Side.WHITE) "White" else "Black"

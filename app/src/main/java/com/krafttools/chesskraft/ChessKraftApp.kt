@@ -13,6 +13,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.krafttools.chesskraft.domain.GameReviewResult
 import com.krafttools.chesskraft.domain.Side
 import com.krafttools.chesskraft.engine.Difficulty
 import com.krafttools.chesskraft.engine.OwnEngine
@@ -38,7 +39,7 @@ private data class GameConfig(
 private sealed interface Route {
     data object Home : Route
     data class Game(val config: GameConfig) : Route
-    data class Review(val fens: List<String>, val sans: List<String>, val playerSide: Side) : Route
+    data class Review(val review: GameReviewResult, val playerSide: Side) : Route
 }
 
 @Composable
@@ -74,17 +75,14 @@ fun ChessKraftApp() {
                     )
                 },
                 onNewGame = { route = Route.Home },
-                onOpenReview = {
-                    val (fens, sans) = viewModel.exportHistory()
-                    route = Route.Review(fens, sans, viewModel.playerSide)
+                onOpenReview = { review ->
+                    route = Route.Review(review, viewModel.playerSide)
                 },
             )
         }
         is Route.Review -> ReviewScreen(
-            fens = current.fens,
-            sans = current.sans,
+            review = current.review,
             playerSide = current.playerSide,
-            onBack = { route = Route.Home },
         )
     }
 }

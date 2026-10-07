@@ -24,6 +24,25 @@ class OwnEngine(private val random: Random = Random.Default) : Engine {
         return UciMove(MoveGen.moveToUci(m))
     }
 
+    /**
+     * Same search as [findBestMove], keeping the score it already produced.
+     * The searcher sorts the root list as it deepens and keeps the best move of
+     * the last *completed* iteration, so index 0 of [Searcher.rootMoves] and
+     * [Searcher.rootScores] are always one honest pair — including when the
+     * time cap fired mid-iteration, where both still describe the last full
+     * depth. Nothing here searches twice or adds a second code path.
+     */
+    override fun analyze(positionFen: String, limits: SearchLimits): Analysis {
+        val pos = Position.fromFen(positionFen)
+        val searcher = Searcher(limits.maxDepth, limits.maxMillis)
+        val best = searcher.findBest(pos)
+        if (best == NO_MOVE || searcher.rootCount == 0) return Analysis(UciMove(NULL_UCI), 0)
+        return Analysis(
+            bestMove = UciMove(MoveGen.moveToUci(searcher.rootMoves[0])),
+            scoreCp = searcher.rootScores[0],
+        )
+    }
+
     fun findBestMove(positionFen: String, difficulty: Difficulty): UciMove {
         val pos = Position.fromFen(positionFen)
         val limits = searchLimitsFor(difficulty)

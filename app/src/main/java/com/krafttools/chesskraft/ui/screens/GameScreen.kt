@@ -45,6 +45,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import android.content.res.Configuration
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
@@ -59,6 +61,7 @@ import com.kraft.ui.tokens.KraftTypeScale
 import com.krafttools.chesskraft.domain.PieceCode
 import com.krafttools.chesskraft.domain.PieceType
 import com.krafttools.chesskraft.domain.Side
+import com.krafttools.chesskraft.domain.GameReviewResult
 import com.krafttools.chesskraft.domain.pieceValue
 import com.krafttools.chesskraft.engine.Difficulty
 import com.krafttools.chesskraft.presentation.GameUiState
@@ -77,7 +80,15 @@ import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import com.kraft.ui.tokens.KraftIconSize
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.runtime.getValue
 import kotlinx.coroutines.delay
 
 /**
@@ -89,7 +100,7 @@ fun GameScreen(
     viewModel: GameViewModel,
     onRematch: () -> Unit,
     onNewGame: () -> Unit,
-    onOpenReview: () -> Unit,
+    onOpenReview: (GameReviewResult) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsState()
@@ -97,6 +108,8 @@ fun GameScreen(
     val context = LocalContext.current
     var confirmResign by remember { mutableStateOf(false) }
     var sheetOpen by remember { mutableStateOf(false) }
+    var reviewJob by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var reviewing by remember { mutableStateOf(false) }
 
     // Clock cadence: the ViewModel owns the arithmetic, the composable owns
     // the heartbeat, so no coroutine loop lives in the ViewModel.
@@ -143,26 +156,37 @@ fun GameScreen(
     }
 
     Column(modifier = modifier.fillMaxSize().navigationBarsPadding()) {
-        // Local top bar, not the foundation's: the foundation bar's default-ink
-        // title renders nothing visible on this screen (node present, zero
-        // pixels — reported to the foundation track), while every explicit-ink
-        // text on this screen draws fine. Explicit ink here, no mystery.
+        // Compact bar: the opponent bar sits directly under it, so the title
+        // band is one row tall instead of a wasted 200px. The foundation's
+        // default-ink title rendered zero pixels on this screen (node present,
+        // nothing drawn — reported to the foundation track), so ink is explicit.
         GameTopBar(
             soundOn = state.soundOn,
             onToggleSound = viewModel::toggleSound,
+            thinking = state.aiThinking,
         )
 
         // The board is sized by the smaller incoming dimension: full width in
         // portrait, the height budget in landscape with the strips and status
         // reflowing into a side column.
-        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
-            val landscape = maxWidth > maxHeight
+        // No weight here: the board block wraps its content at full width, and
+        // the move-list box below takes the remaining height. Two weighted
+        // children split the space in half and the board lost half its size —
+        // visible on the device, invisible in the source.
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            // Orientation from the configuration, never from this box's own
+            // constraints: an earlier version compared maxWidth > maxHeight
+            // here, and any layout change that shrank the board block flipped
+            // the whole screen into the side-by-side branch mid-game.
+            val landscape = LocalConfiguration.current.orientation ==
+                Configuration.ORIENTATION_LANDSCAPE
             val boardSide = minOf(maxWidth * BoardLandscapeFraction, maxHeight)
             if (!landscape) {
-                Column(
-                    verticalArrangement = Arrangement.Center,
-                    modifier = Modifier.fillMaxSize(),
-                ) {
+                // No vertical centring: the board block hugs the top and all
+                // spare pixels collect in ONE place — under the status, where
+                // the move list lives. Centring split the slack in half and
+                // left a void above and below.
+                Column(modifier = Modifier.fillMaxSize()) {
                     BoardChrome(
                         state = state,
                         playerSide = viewModel.playerSide,
@@ -195,6 +219,12 @@ fun GameScreen(
                     }
                 }
             }
+        }
+
+        // The bottom of the screen belongs to the game story: the move list
+        // sits in the slack under the board, where chess.com puts its panel.
+        Box(Modifier.weight(1f)) {
+            MoveStrip(sans = state.sans)
         }
 
         ToolbarRow(
@@ -251,6 +281,18 @@ fun GameScreen(
         )
     }
 
+    // The review grades every ply against the engine. Off the UI thread, and
+    // cancelled if the sheet is dismissed before it finishes.
+    LaunchedEffect(reviewJob) {
+        val job = reviewJob ?: return@LaunchedEffect
+        val built = viewModel.buildReview()
+        if (built != null) {
+            job()
+            reviewJob = null
+            onOpenReview(built)
+        }
+    }
+
     val result = state.result
     if (result != null && sheetOpen) {
         GameOverSheet(
@@ -258,7 +300,11 @@ fun GameScreen(
             moveCount = state.sans.size,
             onRematch = onRematch,
             onNewGame = onNewGame,
-            onReview = onOpenReview,
+            onReview = {
+                reviewing = true
+                reviewJob = { reviewing = false }
+            },
+            reviewRunning = reviewing,
             onDismiss = { sheetOpen = false },
         )
     }
@@ -269,7 +315,7 @@ fun GameScreen(
  * explicit — see the call-site note about the foundation bar.
  */
 @Composable
-private fun GameTopBar(soundOn: Boolean, onToggleSound: () -> Unit) {
+private fun GameTopBar(soundOn: Boolean, onToggleSound: () -> Unit, thinking: Boolean) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -292,6 +338,10 @@ private fun GameTopBar(soundOn: Boolean, onToggleSound: () -> Unit) {
             maxLines = 1,
             modifier = Modifier.weight(1f),
         )
+        if (thinking) {
+            ThinkingIndicator()
+            Spacer(Modifier.size(KraftSpacing.Spacing8))
+        }
         TextButton(
             onClick = onToggleSound,
             colors = ButtonDefaults.textButtonColors(
@@ -331,11 +381,12 @@ private fun BoardChrome(
         clockMs = if (playerSide == Side.WHITE) state.clockBlackMs else state.clockWhiteMs,
         label = capturedLabel(playerSide.opponent(), state.capturedByWhite, state.capturedByBlack),
     )
+    // Full-bleed board: it runs edge to edge under the player bars, the way
+    // chess.com draws it. Inset boards read as a widget; this reads as a game.
     ChessBoard(
         state = state,
         onTap = onTap,
         onDrop = onDrop,
-        modifier = Modifier.padding(horizontal = KraftSpacing.Spacing16),
     )
     PlayerStrip(
         name = "You",
@@ -350,7 +401,6 @@ private fun BoardChrome(
         label = capturedLabel(playerSide, state.capturedByWhite, state.capturedByBlack),
     )
     StatusLine(statusText)
-    MoveStrip(sans = state.sans)
 }
 
 @Composable
@@ -384,7 +434,6 @@ private fun SideChrome(
         label = capturedLabel(playerSide, state.capturedByWhite, state.capturedByBlack),
     )
     StatusLine(statusText)
-    MoveStrip(sans = state.sans)
 }
 
 /**
@@ -456,6 +505,46 @@ private fun StatusLine(statusText: String) {
                 contentDescription = "Status. $statusText"
             },
     )
+}
+
+/**
+ * Three dots that cycle while the engine thinks — the waiting state said out
+ * loud. No spinner dependency, no infinite rotation: a phase change is a
+ * colour change, which is free.
+ */
+@Composable
+private fun ThinkingIndicator() {
+    val transition = rememberInfiniteTransition(label = "thinking")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = ThinkingCycleMs, easing = LinearEasing),
+        ),
+        label = "phase",
+    )
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(ThinkingDotGap.dp),
+        modifier = Modifier.semantics(mergeDescendants = true) {
+            contentDescription = "The computer is thinking."
+        },
+    ) {
+        for (i in 0 until ThinkingDots) {
+            val lit = (phase * ThinkingDots).toInt() == i
+            Box(
+                modifier = Modifier
+                    .size(ThinkingDotSize.dp)
+                    .clip(RoundedCornerShape(KraftRadius.Pill))
+                    .background(
+                        if (lit) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outline
+                        },
+                    ),
+            )
+        }
+    }
 }
 
 /**
@@ -708,3 +797,7 @@ private const val CheckHapticGapMs = 90L
 private const val ClockLowMs = 20_000L
 /** Four beats a second: a second-resolution clock does not need more, and 250ms keeps the pill from stuttering. */
 private const val ClockTickMs = 250L
+private const val ThinkingDots = 3
+private const val ThinkingDotSize = 6
+private const val ThinkingDotGap = 3
+private const val ThinkingCycleMs = 900

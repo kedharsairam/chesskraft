@@ -61,6 +61,13 @@ object ChessKraftColors {
     val PieceBlack = Color(0xFF2A2118)
     val PieceEdgeDark = Color(0xFF3A2C14)
     val PieceEdgeLight = Color(0xFFF7F1DE)
+    // Verdict colours, in one line and never alone: the review row prints the
+    // word beside every dot. Green praise, then a warm descent to the error
+    // red the app already uses for Resign.
+    val VerdictBest = Color(0xFF7FA650)
+    val VerdictGood = Color(0xFF9CBF6B)
+    val VerdictInaccuracy = Color(0xFFE0B44A)
+    val VerdictMistake = Color(0xFFD98A3C)
     // Coordinates whisper in the square's own family, darkened one step so
     // text stays readable on its own square. No chips, no backplates.
     val CoordOnLight = Color(0xFF4F7038)
