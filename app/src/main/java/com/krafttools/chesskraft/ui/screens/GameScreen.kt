@@ -22,6 +22,9 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -320,6 +323,7 @@ private fun BoardChrome(
         label = capturedLabel(playerSide, state.capturedByWhite, state.capturedByBlack),
     )
     StatusLine(statusText)
+    MoveStrip(sans = state.sans)
 }
 
 @Composable
@@ -351,6 +355,59 @@ private fun SideChrome(
         label = capturedLabel(playerSide, state.capturedByWhite, state.capturedByBlack),
     )
     StatusLine(statusText)
+    MoveStrip(sans = state.sans)
+}
+
+/**
+ * The game story in one line: numbered move pairs, latest highlighted,
+ * auto-following. Chess.com never hides the moves; neither do we. Instant
+ * snap (never animated scroll) so reduce-motion has nothing to gate.
+ */
+@Composable
+private fun MoveStrip(sans: List<String>) {
+    if (sans.isEmpty()) return
+    val pairs = remember(sans) {
+        buildList {
+            var i = 0
+            while (i < sans.size) {
+                val n = i / 2 + 1
+                val w = sans[i]
+                val b = sans.getOrNull(i + 1)
+                add("$n. $w${if (b != null) " $b" else ""}")
+                i += 2
+            }
+        }
+    }
+    val listState = rememberLazyListState()
+    LaunchedEffect(pairs.size) {
+        if (pairs.isNotEmpty()) listState.scrollToItem(pairs.size - 1)
+    }
+    LazyRow(
+        state = listState,
+        horizontalArrangement = Arrangement.spacedBy(KraftSpacing.Spacing8),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = KraftSpacing.ScreenEdge, vertical = KraftSpacing.Spacing4)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Moves so far. ${pairs.takeLast(3).joinToString(", ")}."
+            },
+    ) {
+        items(pairs.size) { index ->
+            val current = index == pairs.size - 1
+            Text(
+                text = pairs[index],
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = if (current) FontWeight.SemiBold else FontWeight.Normal,
+                ),
+                color = if (current) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                maxLines = 1,
+            )
+        }
+    }
 }
 
 @Composable

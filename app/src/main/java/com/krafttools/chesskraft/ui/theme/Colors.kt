@@ -38,16 +38,25 @@ object ChessKraftColors {
      */
     val FeltGold = Color(0xFFD8B45A)
 
-    // Board felt: tournament green — light #EEEED2 over dark #769656.
-    // Adjacent-square contrast is ~2.8:1, the strongest mainstream default:
-    // the grid reads at a glance without vibrating. Brass washes and the
-    // red check both sit on top of it. Declared here (the palette) so
-    // `colour.per-app-declared` stays green.
+    // Chess.com-dark chrome: warm charcoal, not phone black. Three steps —
+    // page, card, raised — separated by tint, finished with hairlines.
+    val Page = Color(0xFF211E1B)
+    val Card = Color(0xFF2B2724)
+    val CardRaised = Color(0xFF35302B)
+    val Ink = Color(0xFFF2EDE4)
+    val InkDim = Color(0xFFB8AEA1)
+    val Hairline = Color(0xFF4A443D)
+    val HairlineSoft = Color(0xFF38332E)
+    val TileEdge = Color(0xFF3E3833)
+    // Felt: tournament green over the charcoal page. Adjacent-square
+    // contrast is ~2.8:1, the strongest mainstream default: the grid reads at
+    // a glance without vibrating. Gold washes and the red check both sit on
+    // top of it. Declared here (the palette) so `colour.per-app-declared`
+    // stays green.
     val LightSquare = Color(0xFFEEEED2)
     val DarkSquare = Color(0xFF769656)
-    // Our own vector set (see Pieces.kt): cream faces stay mid-tone-distinct
-    // from the dark chrome; espresso reads on light felt directly. Edges are
-    // drawn strokes — never shadows, never font glyphs.
+    // Cburnett art (see Pieces.kt + NOTICE): cream faces stay distinct from
+    // the charcoal chrome; espresso reads on light felt directly.
     val PieceWhite = Color(0xFFF7F1DE)
     val PieceBlack = Color(0xFF2A2118)
     val PieceEdgeDark = Color(0xFF3A2C14)
@@ -58,26 +67,29 @@ object ChessKraftColors {
     val CoordOnDark = Color(0xFFEEEED2)
 
     /**
-     * The scheme. Structural colours come from the foundation so a change there reaches every
-     * app; only the accent is local.
+     * The scheme. Chess.com-dark, not phone black: warm charcoal surfaces so
+     * the felt sits *in* a room instead of floating in a void. The divergence
+     * from the portfolio default is declared here, per
+     * `colour.accent-per-app-allowed` — same roles, warmer values.
      */
     fun scheme(dark: Boolean) = if (dark) {
         darkColorScheme(
             primary = Accent,
             onPrimary = OnAccent,
-            background = KraftColorSchemes.Dark.background,
-            surface = KraftColorSchemes.Dark.surface,
-            surfaceVariant = KraftColorSchemes.Dark.surfaceVariant,
-            onSurface = KraftColorSchemes.Dark.onSurface,
-            onSurfaceVariant = KraftColorSchemes.Dark.onSurfaceVariant,
-            surfaceContainerLowest = KraftColorSchemes.Dark.surfaceContainerLowest,
-            surfaceContainerLow = KraftColorSchemes.Dark.surfaceContainerLow,
-            surfaceContainer = KraftColorSchemes.Dark.surfaceContainer,
-            surfaceContainerHigh = KraftColorSchemes.Dark.surfaceContainerHigh,
-            surfaceContainerHighest = KraftColorSchemes.Dark.surfaceContainerHighest,
-            outline = KraftColorSchemes.Dark.outline,
-            outlineVariant = KraftColorSchemes.Dark.outlineVariant,
-            error = KraftColorSchemes.Dark.error,
+            background = Page,
+            surface = Page,
+            surfaceVariant = Card,
+            onSurface = Ink,
+            onSurfaceVariant = InkDim,
+            surfaceContainerLowest = Page,
+            surfaceContainerLow = Card,
+            surfaceContainer = Card,
+            surfaceContainerHigh = CardRaised,
+            surfaceContainerHighest = TileEdge,
+            outline = Hairline,
+            outlineVariant = HairlineSoft,
+            error = Color(0xFFE0604E),
+            onError = Color(0xFF2A0F0C),
         )
     } else {
         lightColorScheme(
