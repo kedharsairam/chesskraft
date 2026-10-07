@@ -66,6 +66,8 @@ import com.krafttools.chesskraft.domain.Side
 import com.krafttools.chesskraft.ui.theme.ChessKraftColors
 import com.krafttools.chesskraft.domain.GameReviewResult
 import com.krafttools.chesskraft.domain.pieceValue
+import com.krafttools.chesskraft.domain.Bot
+import com.krafttools.chesskraft.domain.Bots
 import com.krafttools.chesskraft.engine.Difficulty
 import com.krafttools.chesskraft.presentation.GameUiState
 import com.krafttools.chesskraft.presentation.GameViewModel
@@ -74,10 +76,14 @@ import com.krafttools.chesskraft.ui.board.ChessBoard
 import com.krafttools.chesskraft.ui.board.GameOverSheet
 import com.krafttools.chesskraft.ui.board.PieceMark
 import com.krafttools.chesskraft.ui.board.PromotionDialog
-import androidx.compose.material.icons.Icons
+import androidx.compose.material3.Icon
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BlurOff
+import androidx.compose.material.icons.filled.East
 import androidx.compose.material.icons.filled.Flag
-import androidx.compose.material.icons.filled.HorizontalRule
+import androidx.compose.material.icons.outlined.Flag
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PanTool
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Lightbulb
@@ -109,6 +115,13 @@ fun GameScreen(
     onNewGame: () -> Unit,
     onOpenReview: (GameReviewResult) -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * Called once a game has actually ended, so the caller can drop the resume
+     * card and re-read the history. Firing it on every recomposition would put
+     * a file read in the composition path; it is therefore tied to the same
+     * transition that shows the game-over screen.
+     */
+    onGameFinished: (() -> Unit)? = null,
 ) {
     val state by viewModel.state.collectAsState()
     val haptics = LocalHapticFeedback.current
@@ -171,6 +184,8 @@ fun GameScreen(
             soundOn = state.soundOn,
             onToggleSound = viewModel::toggleSound,
             thinking = state.aiThinking,
+            showArrows = state.showArrows,
+            onToggleArrows = viewModel::toggleArrows,
         )
 
         // The board is sized by the smaller incoming dimension: full width in
@@ -309,6 +324,11 @@ fun GameScreen(
     }
 
     val result = state.result
+    // Keyed on the result, not on composition: the save has just gained a
+    // finished game and the resume card on Home is now a lie.
+    LaunchedEffect(result) {
+        if (result != null) onGameFinished?.invoke()
+    }
     if (result != null && sheetOpen) {
         GameOverSheet(
             result = result,
@@ -330,7 +350,13 @@ fun GameScreen(
  * explicit — see the call-site note about the foundation bar.
  */
 @Composable
-private fun GameTopBar(soundOn: Boolean, onToggleSound: () -> Unit, thinking: Boolean) {
+private fun GameTopBar(
+    soundOn: Boolean,
+    onToggleSound: () -> Unit,
+    thinking: Boolean,
+    showArrows: Boolean,
+    onToggleArrows: () -> Unit,
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -356,6 +382,33 @@ private fun GameTopBar(soundOn: Boolean, onToggleSound: () -> Unit, thinking: Bo
         if (thinking) {
             ThinkingIndicator()
             Spacer(Modifier.size(KraftSpacing.Spacing8))
+        }
+        IconButton(
+            onClick = onToggleArrows,
+            modifier = Modifier
+                .size(KraftSpacing.Spacing48)
+                .semantics(mergeDescendants = true) {
+                    contentDescription = if (showArrows) {
+                        "Hide the move arrows."
+                    } else {
+                        "Show the move arrows."
+                    }
+                },
+        ) {
+            Icon(
+                imageVector = if (showArrows) {
+                    Icons.Filled.East
+                } else {
+                    Icons.Filled.BlurOff
+                },
+                contentDescription = null,
+                tint = if (showArrows) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier.size(KraftIconSize.Medium),
+            )
         }
         // An icon, not a word: a toggle that spells out its state reads as a
         // status line and pushes the title around. The state is in the icon,
@@ -404,6 +457,7 @@ private fun BoardChrome(
         state = state,
         onTap = onTap,
         onDrop = onDrop,
+        showArrows = state.showArrows,
     )
     PlayerStrip(
         name = "You",
@@ -417,7 +471,12 @@ private fun BoardChrome(
         clockMs = if (playerSide == Side.WHITE) state.clockWhiteMs else state.clockBlackMs,
         label = capturedLabel(playerSide, state.capturedByWhite, state.capturedByBlack),
     )
-    StatusRow(statusText = statusText, evalCp = state.evalCp)
+    StatusRow(
+        statusText = statusText,
+        evalCp = state.evalCp,
+        openingName = state.openingName,
+        coachLine = state.coachLine,
+    )
 }
 
 @Composable
@@ -450,7 +509,12 @@ private fun SideChrome(
         clockMs = if (playerSide == Side.WHITE) state.clockWhiteMs else state.clockBlackMs,
         label = capturedLabel(playerSide, state.capturedByWhite, state.capturedByBlack),
     )
-    StatusRow(statusText = statusText, evalCp = state.evalCp)
+    StatusRow(
+        statusText = statusText,
+        evalCp = state.evalCp,
+        openingName = state.openingName,
+        coachLine = state.coachLine,
+    )
 }
 
 /**
@@ -536,7 +600,12 @@ private fun MoveStrip(sans: List<String>, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun StatusRow(statusText: String, evalCp: Int?) {
+private fun StatusRow(
+    statusText: String,
+    evalCp: Int?,
+    openingName: String? = null,
+    coachLine: String? = null,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -552,6 +621,17 @@ private fun StatusRow(statusText: String, evalCp: Int?) {
                 contentDescription = "Status. $statusText"
             },
         )
+        if (openingName != null) {
+            Text(
+                text = openingName,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                modifier = Modifier.semantics(mergeDescendants = true) {
+                    contentDescription = "Opening: $openingName."
+                },
+            )
+        }
         EvalBar(evalCp = evalCp)
     }
 }
@@ -625,6 +705,25 @@ private val EvalBarThickness = 8
 private val EvalBarNotchWidth = 2
 /** +/- three pawns is the end of the scale; beyond that the bar stops moving. */
 private const val EvalBarCp = 300
+
+/**
+ * The engine's one sentence about your last move. Quieter than the status
+ * line and never louder than the board: a line of coaching, not an alarm.
+ */
+@Composable
+private fun CoachLineText(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+        maxLines = 2,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = KraftSpacing.Spacing8)
+            .semantics(mergeDescendants = true) { contentDescription = "Coach: $text" },
+    )
+}
 
 /**
  * Three dots that cycle while the engine thinks — the waiting state said out
@@ -808,15 +907,12 @@ private fun TurnDot(active: Boolean, description: String) {
     }
 }
 
-private fun opponentName(playerSide: Side, state: GameUiState): String {
-    val level = when (state.difficulty) {
-        Difficulty.RELAXED -> "Relaxed"
-        Difficulty.CASUAL -> "Casual"
-        Difficulty.SHARP -> "Sharp"
-        Difficulty.TOUGH -> "Tough"
-    }
-    return "Computer · $level"
-}
+/**
+ * The opponent is a name, not a dial. "Computer · Casual" made the thing you
+ * are playing feel like a settings value; Bertie does not.
+ */
+private fun opponentName(playerSide: Side, state: GameUiState): String =
+    Bots.forLevel(state.difficulty).name
 
 private fun capturedLabel(
     forSide: Side,
@@ -867,7 +963,7 @@ private fun ToolbarRow(
             ToolbarIcon(Icons.Filled.Lightbulb, "Hint", "Show a suggested move", true, onHint)
             ToolbarIcon(Icons.Filled.Add, "New", "Start a new game", true, onNew)
             ToolbarIcon(
-                Icons.Filled.Flag,
+                Icons.Outlined.Flag,
                 "Resign",
                 "Give up this game",
                 true,
@@ -876,7 +972,7 @@ private fun ToolbarRow(
             )
             ToolbarIcon(Icons.Filled.SwapVert, "Flip", "Turn the board around", true, onFlip)
             ToolbarIcon(
-                Icons.Filled.HorizontalRule,
+                Icons.Filled.PanTool,
                 "Offer draw",
                 "Ask the computer for a draw.",
                 canOfferDraw && !drawPending,

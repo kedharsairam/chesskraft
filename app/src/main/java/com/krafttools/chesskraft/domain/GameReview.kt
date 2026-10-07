@@ -10,6 +10,10 @@
  * The verdicts are the usual chess-tool convention: centipawns lost against the
  * engine's best move. The accuracy numbers are chess.com-shaped, not
  * chess.com-identical — see the formula notes on [GameReview].
+ *
+ * Every move also records where it left the game, [ReviewedMove.evalAfterCp], so
+ * a review can draw an evaluation line off the same single pass over the
+ * positions. Nothing here is searched twice for that.
  */
 package com.krafttools.chesskraft.domain
 
@@ -35,7 +39,22 @@ enum class MoveVerdict {
 
     /** 200cp or more, or a lost mate. */
     BLUNDER,
+
 }
+
+/**
+ * The same ladder the review uses, exposed so one move can be graded mid-game
+ * without replaying the whole game. One place decides what a number means, and
+ * these are the same thresholds GameReview grades against.
+ */
+fun verdictForCpLoss(cpLoss: Int): MoveVerdict = when {
+    cpLoss <= 0 -> MoveVerdict.BEST
+    cpLoss < 20 -> MoveVerdict.GOOD
+    cpLoss < 80 -> MoveVerdict.INACCURACY
+    cpLoss < 200 -> MoveVerdict.MISTAKE
+    else -> MoveVerdict.BLUNDER
+}
+
 
 /**
  * One graded move.
@@ -45,6 +64,14 @@ enum class MoveVerdict {
  * [cpLoss] the centipawns it gave away against the engine's best move, and
  * [bestSan] what the engine wanted instead — null when the analyser had no
  * answer for that position.
+ *
+ * [evalAfterCp] is the score of the position *after* this move, from White's
+ * point of view, so a review can draw an evaluation line without searching
+ * anything again. It is null when the analyser could not see that position —
+ * which is also what the default says, for a caller with no evaluation to pass
+ * — and it carries the search's own mate encoding rather than a flattened
+ * "infinite": a mate arrives as a large number in one direction or the other
+ * ([GameReview.MATE_THRESHOLD] and up means mate, never a pawn evaluation).
  */
 data class ReviewedMove(
     val ply: Int,
@@ -53,6 +80,7 @@ data class ReviewedMove(
     val verdict: MoveVerdict,
     val cpLoss: Int,
     val bestSan: String?,
+    val evalAfterCp: Int? = null,
 )
 
 /**
@@ -152,6 +180,12 @@ object GameReview {
      * Grades every move of a finished game. [analyze] is asked once per distinct
      * position and may return null when it has no answer; the game is still
      * reviewed, just without grades on the positions it could not see.
+     *
+     * Each move also carries [ReviewedMove.evalAfterCp], the evaluation of the
+     * position it produced. That is the same answer already fetched for the
+     * grading, read from White's side instead of the mover's — a review screen
+     * can draw the whole line from this one pass, and a caller that wanted the
+     * evaluations separately must not have to pay for a second search per ply.
      */
     fun build(
         fens: List<String>,
@@ -178,6 +212,13 @@ object GameReview {
             val reached = answered(fens[ply + 1])
             // fens[ply + 1] has the other side to move, so negate back to the mover.
             val bestScore = best?.scoreCp
+            // One number read two ways. The position after the move is reported
+            // from the other side's point of view, so negating it gives both the
+            // score of what was played in the mover's terms — which is what
+            // cpLoss is arithmetic on — and that same position's evaluation in
+            // White's terms, which is [ReviewedMove.evalAfterCp]. Deriving the
+            // second from the first is the whole point: asking the analyser again
+            // for it would double the search cost for no new information.
             val playedScore = reached?.let { -it.scoreCp }
 
             val cpLoss: Int
@@ -209,6 +250,9 @@ object GameReview {
                     verdict = verdict,
                     cpLoss = cpLoss,
                     bestSan = best?.let { sanOf(before, it.bestMove.text) },
+                    // White's view of where the move left the game. Already in
+                    // hand from the same search that graded the move.
+                    evalAfterCp = playedScore,
                 ),
             )
 

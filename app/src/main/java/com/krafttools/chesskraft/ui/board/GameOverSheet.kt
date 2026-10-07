@@ -14,13 +14,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -37,6 +40,7 @@ import com.krafttools.chesskraft.domain.GameResult
 import com.krafttools.chesskraft.domain.PieceCode
 import com.krafttools.chesskraft.domain.PieceType
 import com.krafttools.chesskraft.domain.Side
+import com.krafttools.chesskraft.ui.screens.fullMoves
 
 /**
  * Game-over sheet. The result leads — a short headline, one sub-line, and the
@@ -54,10 +58,20 @@ fun GameOverSheet(
     reviewRunning: Boolean,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    // skipPartiallyExpanded: the sheet used to open half-height and put the
+    // Review button below the fold, so the one thing this screen exists for was
+    // invisible until the player discovered the sheet could be dragged.
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                // Scrollable as well, because a large font scale can push the
+                // last button off even a fully expanded sheet, and a control
+                // that cannot be reached is not a control.
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = KraftSpacing.ScreenEdge)
                 .navigationBarsPadding()
                 .padding(bottom = KraftSpacing.Spacing8),
@@ -170,8 +184,8 @@ private fun ResultEmblem() {
 private val ResultEmblemSize = KraftSpacing.Spacing64 * 2
 private val ResultKingSize = KraftSpacing.Spacing64
 
-private fun movesLine(moveCount: Int): String = when (moveCount) {
+private fun movesLine(plyCount: Int): String = when (fullMoves(plyCount)) {
     0 -> "No moves played."
     1 -> "One move played."
-    else -> "$moveCount moves played."
+    else -> "${fullMoves(plyCount)} moves played."
 }

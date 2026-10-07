@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -63,6 +64,7 @@ import com.krafttools.chesskraft.domain.describeSquare
 import com.krafttools.chesskraft.presentation.announceText
 import com.krafttools.chesskraft.presentation.GameUiState
 import com.krafttools.chesskraft.ui.theme.ChessKraftColors
+import kotlin.math.hypot
 
 /**
  * Piece glyph layouts, cached and keyed on the square size in pixels: a text
@@ -96,6 +98,15 @@ fun ChessBoard(
     onDrop: (Int, Int) -> Unit,
     modifier: Modifier = Modifier,
     interactive: Boolean = true,
+    /**
+     * Whether the last move is drawn as an arrow as well as the two-square
+     * wash. Defaults on, so every existing caller is unchanged; pass false to
+     * clear the felt for reading a position. Deliberately a plain parameter
+     * rather than a field on the state this board does not own: whoever owns
+     * `GameUiState` can wire a top-bar toggle through here without the board
+     * growing a dependency on a settings holder.
+     */
+    showArrows: Boolean = true,
 ) {
     var boardPx by remember { mutableStateOf(0f) }
     var dragFrom by remember { mutableStateOf<Int?>(null) }
@@ -254,6 +265,7 @@ fun ChessBoard(
                     dragFrom = dragFrom,
                     dragPos = dragPos,
                     motion = motion,
+                    showArrows = showArrows,
                 )
             }
             // 64 layout-only TalkBack nodes. Transparent, no pointer handling —
@@ -331,6 +343,7 @@ private fun DrawScope.drawBoard(
     dragFrom: Int?,
     dragPos: Offset?,
     motion: BoardMotion,
+    showArrows: Boolean,
 ) {
     val boardPx = size.width
     val sq = BoardGeometry.squareSize(boardPx)
@@ -503,7 +516,25 @@ private fun DrawScope.drawBoard(
         )
     }
 
-    // 8. Coordinates inside the corners, in the opposite square colour so
+    // 8. Last-move arrow. A thin tapered shaft with a small head at the
+    // destination, both ends trimmed to stay inside the two squares the move
+    // touched — the head stops at the edge of the piece's own footprint rather
+    // than running under it, because a head hidden by the piece it points at is
+    // not an arrow. Drawn here, between the markers and the pieces: over the
+    // squares and washes, under every piece. Gold for the reason the drag target
+    // is gold — the app's green is the dark square's own colour.
+    val arrowAlpha = motion.arrowAlpha
+    if (showArrows && arrowAlpha > 0f && lastFrom != null && lastTo != null) {
+        drawLastMoveArrow(
+            from = cellCenter(lastFrom, boardPx, state.flipped),
+            to = cellCenter(lastTo, boardPx, state.flipped),
+            sq = sq,
+            alpha = arrowAlpha,
+            color = accent,
+        )
+    }
+
+    // 9. Coordinates inside the corners, in the opposite square colour so
     // they read on light and dark wood alike. Layouts are cached per label;
     // steady state measures nothing.
     for (i in coordLabels.indices) {
@@ -527,7 +558,7 @@ private fun DrawScope.drawBoard(
         drawText(layout, topLeft = topLeft)
     }
 
-    // 9. Pieces, cached per (glyph, square size). The sliding piece is drawn
+    // 10. Pieces, cached per (glyph, square size). The sliding piece is drawn
     // at its lerped position; its landing square is skipped until it lands.
     val slidingPiece = if (slideProgress < 1f && lastFrom != null && lastTo != null) {
         state.pieces[lastTo]
@@ -553,7 +584,7 @@ private fun DrawScope.drawBoard(
         drawArtPiece(art, slidingPiece, at, sq)
     }
 
-    // 10. The piece under the finger. Drawn last so it floats above everything,
+    // 11. The piece under the finger. Drawn last so it floats above everything,
     // and centred half a square up and left of the touch point: a thumb covers
     // the origin it drags from, so the piece has to sit clear of it. Scaled and
     // outlined so it reads as picked up rather than painted on — a lift, not a
@@ -571,7 +602,7 @@ private fun DrawScope.drawBoard(
         }
     }
 
-    // 11. A refused drop: the piece carries itself home over 150ms instead of
+    // 12. A refused drop: the piece carries itself home over 150ms instead of
     // blinking out where the finger left it. Starts from the same offset the
     // drag ended at, so the handover is invisible, and settles as it goes —
     // the lift unwinds into the square it came from.
@@ -591,6 +622,81 @@ private fun DrawScope.drawBoard(
             )
         }
     }
+}
+
+/**
+ * The last move, as an arrow: a tapered shaft from the centre of [from] to the
+ * centre of [to], with a small head at the destination.
+ *
+ * Both ends are pulled back along the direction of travel ([ArrowStartInset]
+ * and [ArrowTipInset] of a square) so nothing runs past the origin or the
+ * destination, and the head length is capped against the shaft that is left, so
+ * a one-square move gets a short stub of shaft and a proportionally smaller head
+ * rather than a head with no shaft under it. Widths are fractions of [sq] like
+ * every other marker here, so an arrow on a tablet board is the same drawing as
+ * one on a phone board.
+ *
+ * One inline [Path] per draw: the shape is seven points, so caching it against a
+ * size bucket would cost more bookkeeping than rebuilding it. The caller draws
+ * this under the pieces, which is what keeps a piece sitting on top of its own
+ * arrow.
+ */
+private fun DrawScope.drawLastMoveArrow(
+    from: Offset,
+    to: Offset,
+    sq: Float,
+    alpha: Float,
+    color: androidx.compose.ui.graphics.Color,
+) {
+    val dx = to.x - from.x
+    val dy = to.y - from.y
+    val length = hypot(dx, dy)
+    // hypot is non-negative by contract, so test the components: this is the
+    // divide-by-zero guard for a null move (from == to) reaching here.
+    if (dx == 0f && dy == 0f) return
+    val ux = dx / length
+    val uy = dy / length
+    // Perpendicular, for the taper: half a turn off the direction of travel.
+    val px = -uy
+    val py = ux
+
+    val startInset = minOf(sq * ArrowStartInset, length * ArrowInsetCap)
+    val tipInset = sq * ArrowTipInset
+    val tip = Offset(to.x - ux * tipInset, to.y - uy * tipInset)
+    val shaftSpan = (length - startInset - tipInset).coerceAtLeast(0f)
+    // Head length, whole (flare plus triangle), at most a bit over half of what
+    // is left: a one-square move must keep a visible stub of shaft, or the head
+    // is all that is drawn and it reads as a blob on the destination square.
+    val head = minOf(sq * ArrowHeadLength, shaftSpan * ArrowHeadSpanCap)
+    val flare = head * ArrowHeadFlareShare
+    val baseHalf = sq * ArrowHeadHalf
+    val neckHalf = sq * ArrowNeckHalf
+    // Base of the head, then the neck just behind it: the flare from neck width
+    // to head width is what makes the head read as a head rather than a point.
+    val base = Offset(tip.x - ux * head, tip.y - uy * head)
+    val neck = Offset(tip.x - ux * (head + flare), tip.y - uy * (head + flare))
+    val tailHalf = sq * ArrowTailHalf
+    val tail = Offset(
+        from.x + ux * startInset,
+        from.y + uy * startInset,
+    )
+    val paint = color.copy(alpha = alpha * ArrowAlpha)
+
+    // Seven points, one closed path: a shaft fat at the tail narrowing to the
+    // neck, flaring out to the head's base, and a triangle to the tip. Taper and
+    // head together are what separate an arrow from a line; a plain stroke at one
+    // width reads as a scratch on the felt.
+    val path = Path().apply {
+        moveTo(tail.x + px * tailHalf, tail.y + py * tailHalf)
+        lineTo(neck.x + px * neckHalf, neck.y + py * neckHalf)
+        lineTo(base.x + px * baseHalf, base.y + py * baseHalf)
+        lineTo(tip.x, tip.y)
+        lineTo(base.x - px * baseHalf, base.y - py * baseHalf)
+        lineTo(neck.x - px * neckHalf, neck.y - py * neckHalf)
+        lineTo(tail.x - px * tailHalf, tail.y - py * tailHalf)
+        close()
+    }
+    drawPath(path, paint)
 }
 
 /**
@@ -640,6 +746,47 @@ private const val PulseMaxAlpha = 0.7f
 private const val HintAlpha = 0.18f
 private const val CoordPad = 0.07f
 private const val CaptureFlashMax = 0.9f
+
+// Last-move arrow. Every number is a fraction of the square, the same convention
+// as CoordPad and RingWidth above: the arrow is a mark on the felt, so it should
+// scale with the felt and not with the device's density.
+private const val ArrowAlpha = 0.85f
+/**
+ * Tail pull-back from the origin centre, and head pull-back from the
+ * destination centre. Both keep the arrow inside the two squares it spans: the
+ * origin piece's own footprint is 0.44 of a square, so stopping short of it
+ * leaves a readable gap instead of a stub under a piece.
+ */
+private const val ArrowStartInset = 0.30f
+private const val ArrowTipInset = 0.34f
+
+/**
+ * Ceiling on [ArrowStartInset] for very short moves (the two centres can be
+ * closer than the inset on a rotated board or a tight layout): at most a third
+ * of the span, so a short arrow is short rather than inverted.
+ */
+private const val ArrowInsetCap = 0.34f
+
+/**
+ * Head length along the direction of travel (base to tip) and the share of the
+ * remaining shaft it may take on a short move. 0.26 is what stays clear of a
+ * knight's move: the head has to be long enough to see at all at 135px squares.
+ */
+private const val ArrowHeadLength = 0.26f
+private const val ArrowHeadSpanCap = 0.55f
+
+/** How much of the head sits behind the base as the flare out of the neck. */
+private const val ArrowHeadFlareShare = 0.28f
+
+/**
+ * Half-widths. The head is deliberately three times the neck: the taper into a
+ * thin neck and out again into a wide base is the whole visual difference
+ * between an arrow and a tapered line, and at these sizes a head as narrow as the
+ * shaft is invisible.
+ */
+private const val ArrowHeadHalf = 0.075f
+private const val ArrowNeckHalf = 0.025f
+private const val ArrowTailHalf = 0.042f
 
 // Drag feel. Ratios of the square, not dp: a lift is a component metric (how
 // far the piece comes off the felt), and a ratio keeps it identical on a phone

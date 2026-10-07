@@ -26,6 +26,13 @@ import com.krafttools.chesskraft.engine.Difficulty
 sealed interface Route {
     data object Home : Route
 
+    /**
+     * The finished-game list. Carries nothing: it reads the save when it opens,
+     * so the history is always whatever is on disk rather than a snapshot that
+     * goes stale the moment a game ends.
+     */
+    data object History : Route
+
     data class Game(
         val key: Long,
         val difficulty: Difficulty,
@@ -50,6 +57,7 @@ const val RouteMid = ""
 /** Encodes [route] for `rememberSaveable`, or null when it cannot be stored. */
 fun encodeRoute(route: Route): String? = when (route) {
     Route.Home -> "home"
+        Route.History -> "history"
     is Route.Game -> listOf(
         "game",
         route.key.toString(),
@@ -72,6 +80,7 @@ fun decodeRoute(saved: String?): Route? {
     return try {
         when (parts.firstOrNull()) {
             "home" -> Route.Home
+            "history" -> Route.History
             "game" -> Route.Game(
                 key = parts[1].toLong(),
                 difficulty = Difficulty.valueOf(parts[2]),

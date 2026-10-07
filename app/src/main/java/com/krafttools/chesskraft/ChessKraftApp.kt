@@ -18,6 +18,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.krafttools.chesskraft.data.FileGameStore
 import com.krafttools.chesskraft.data.GameStore
+import com.krafttools.chesskraft.domain.FinishedGame
 import com.krafttools.chesskraft.domain.GameReviewResult
 import com.krafttools.chesskraft.domain.Side
 import com.krafttools.chesskraft.engine.Difficulty
@@ -29,6 +30,7 @@ import com.krafttools.chesskraft.presentation.decodeRoute
 import com.krafttools.chesskraft.presentation.encodeRoute
 import androidx.compose.ui.platform.LocalContext
 import com.krafttools.chesskraft.ui.screens.GameScreen
+import com.krafttools.chesskraft.ui.screens.HistoryScreen
 import com.krafttools.chesskraft.ui.screens.HomeScreen
 import com.krafttools.chesskraft.ui.screens.ReviewScreen
 import kotlin.random.Random
@@ -41,6 +43,7 @@ fun ChessKraftApp() {
     // itself is untouched — it already survives, keyed on the config key.
     var route by rememberSaveable(stateSaver = RouteSaver) { mutableStateOf(Route.Home) }
     var gameSeq by rememberSaveable { mutableLongStateOf(0L) }
+    var reviewFens by remember { mutableStateOf(emptyList<String>()) }
     val context = LocalContext.current
     val store = remember { FileGameStore.inInternalStorage(context) }
 
@@ -50,13 +53,22 @@ fun ChessKraftApp() {
     // constructed. An unreadable save answers false, which is why a corrupt file
     // can never hold the door shut.
     var hasSavedGame by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        hasSavedGame = store.load().getOrNull()?.inProgress != null
+    var history by remember { mutableStateOf(emptyList<FinishedGame>()) }
+    // One read answers both questions Home asks: is there something to
+    // continue, and what has already been played. Read once rather than twice —
+    // the save is a file, and a screen that hits it per question is a screen
+    // that stalls.
+    suspend fun refreshSave() {
+        val save = store.load().getOrNull()
+        hasSavedGame = save?.inProgress != null
+        history = save?.history.orEmpty()
     }
+    LaunchedEffect(Unit) { refreshSave() }
 
     when (val current = route) {
         Route.Home -> HomeScreen(
             saved = hasSavedGame,
+            history = history,
             onContinue = {
                 gameSeq += 1
                 // The settings come back from the save itself when the game
@@ -73,6 +85,12 @@ fun ChessKraftApp() {
             onPlay = { difficulty, side, flipped, timeControlMs ->
                 gameSeq += 1
                 route = Route.Game(gameSeq, difficulty, side, flipped, timeControlMs)
+            },
+            onOpenHistory = {
+                // Re-read here rather than trusting the list captured at launch:
+                // a game can have ended since, and a history that is one game
+                // stale is worse than no history.
+                route = Route.History
             },
         )
         is Route.Game -> {
@@ -98,14 +116,39 @@ fun ChessKraftApp() {
                 },
                 onNewGame = { route = Route.Home },
                 onOpenReview = { review ->
+                    reviewFens = viewModel.exportHistory().first
                     route = Route.Review(review, viewModel.playerSide)
+                },
+                // Coming back from a finished game, the history on disk has
+                // gained an entry. Re-read so Home and History agree with it.
+                onGameFinished = {
+                    hasSavedGame = false
+                    history = store.load().getOrNull()?.history.orEmpty()
                 },
             )
         }
         is Route.Review -> ReviewScreen(
             review = current.review,
             playerSide = current.playerSide,
+            fens = reviewFens,
+            onBack = { route = Route.Home },
         )
+        Route.History -> {
+            // Reads on entry rather than taking the list the nav graph is
+            // holding, so the screen is right even if it is reached after a
+            // game the parent never saw finish.
+            var shown by remember { mutableStateOf(history) }
+            LaunchedEffect(Unit) {
+                shown = store.load().getOrNull()?.history.orEmpty()
+            }
+            HistoryScreen(
+                history = shown,
+                onBack = {
+                    history = shown
+                    route = Route.Home
+                },
+            )
+        }
     }
 }
 

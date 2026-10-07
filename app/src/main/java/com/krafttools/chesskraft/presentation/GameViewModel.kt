@@ -11,6 +11,10 @@ import com.krafttools.chesskraft.data.GameStore
 import com.krafttools.chesskraft.data.InMemoryGameStore
 import com.krafttools.chesskraft.domain.ChessMove
 import com.krafttools.chesskraft.domain.ChessClock
+import com.krafttools.chesskraft.domain.Coach
+import com.krafttools.chesskraft.domain.CoachLine
+import com.krafttools.chesskraft.domain.OpeningBook
+import com.krafttools.chesskraft.domain.verdictForCpLoss
 import com.krafttools.chesskraft.domain.FinishedGame
 import com.krafttools.chesskraft.domain.GameResult
 import com.krafttools.chesskraft.domain.GameSave
@@ -107,6 +111,9 @@ class GameViewModel(
     init {
         refresh()
         requestEval()
+        // The coaching baseline. Without it the first move of a game has nothing
+        // to be measured against and the coach can never speak at all.
+        refreshDeepScore()
         startClockIfNeeded()
         maybeAiMove()
     }
@@ -420,6 +427,7 @@ class GameViewModel(
     private fun playPlayerMove(move: ChessMove) {
         // The position the move came from: a capture is only knowable against it.
         val before = tree.current()
+        markPlayerMove()
         if (tree.apply(move) == null) {
             _state.value = _state.value.copy(
                 nudgeToken = _state.value.nudgeToken + 1,
@@ -427,6 +435,7 @@ class GameViewModel(
             )
             return
         }
+        notePlayerMoveSan()
         playMoveCue(before, tree.current(), isCapture(before, move))
         stopClockSegment()
         refresh()
@@ -465,6 +474,108 @@ class GameViewModel(
      */
     fun evalLimits(): SearchLimits = SearchLimits(maxDepth = 2, maxMillis = 200L)
 
+    // -- Coaching ---------------------------------------------------------
+
+    /**
+     * The coaching line: what your move cost, said once, in one sentence.
+     *
+     * When it fires is the whole design. The cost of a move is not knowable the
+     * moment it is played — `e5` looks like a pawn push until the knight takes
+     * it — so the sentence waits for the engine's reply and measures the pair:
+     * the deep score of the position you inherited against the deep score of the
+     * position you are now in. Both from White's side, both depth 4, both off
+     * the UI thread, both dropped if the board moved on while they ran.
+     *
+     * The engine's *suggested* move comes from a third read, on the position you
+     * actually moved from, because that is the only position in which the move
+     * you should have played exists. Naming a move from the wrong position is
+     * worse than saying nothing, so the read is dropped if it is unavailable
+     * and [Coach] then says less rather than more.
+     *
+     * Below [CoachLossFloorCp] there is nothing worth interrupting a game for.
+     */
+    fun coachLimits(): SearchLimits =
+        SearchLimits(maxDepth = COACH_DEPTH, maxMillis = COACH_MILLIS)
+
+    /** Latest depth-4 score, always White's point of view. */
+    private var deepScoreCp: Int? = null
+
+    /** [deepScoreCp] as it stood when the player's move was played. */
+    private var prePlayerScoreCp: Int? = null
+
+    /** The FEN the player's move was played from: the only position whose best move is advice. */
+    private var playerMoveFromFen: String? = null
+
+    /** The SAN the player played, held so the sentence is about their move, not the reply. */
+    private var playerMoveSan: String? = null
+
+    /** Called just before the player's move is applied. */
+    private fun markPlayerMove() {
+        prePlayerScoreCp = deepScoreCp
+        playerMoveFromFen = tree.currentFen()
+    }
+
+    /** Called just after the player's move is applied, before the reply. */
+    private fun notePlayerMoveSan() {
+        val sans = tree.sanList()
+        playerMoveSan = sans.lastOrNull()
+    }
+
+    /**
+     * After the engine's reply: refresh the baseline, and if the pair cost the
+     * player [CoachLossFloorCp] or more, say so.
+     */
+    private fun coachAfterReply() {
+        val reachedFen = tree.currentFen()
+        val baseline = prePlayerScoreCp ?: return
+        val fromFen = playerMoveFromFen ?: return
+        val played = playerMoveSan ?: return
+        viewModelScope.launch {
+            val reached = withContext(aiDispatcher) {
+                runCatching { engine.analyze(reachedFen, coachLimits()) }.getOrNull()
+            } ?: return@launch
+            if (tree.currentFen() != reachedFen) return@launch
+            val now = whitePov(reached.scoreCp)
+            deepScoreCp = now
+            val loss = baseline - now
+            if (loss < CoachLossFloorCp) return@launch
+            val best = withContext(aiDispatcher) {
+                runCatching { engine.analyze(fromFen, coachLimits()).bestMove.text }.getOrNull()
+            }
+            val verdict = verdictForCpLoss(loss)
+            _state.value = _state.value.copy(
+                coachLine = Coach.lineFor(verdict, loss, best, played)?.let { coachText(it) },
+            )
+        }
+    }
+
+    /** Keeps the baseline fresh after any position the game did not play into. */
+    private fun refreshDeepScore() {
+        val fen = tree.currentFen()
+        viewModelScope.launch {
+            val analysis = withContext(aiDispatcher) {
+                runCatching { engine.analyze(fen, coachLimits()) }.getOrNull()
+            } ?: return@launch
+            if (tree.currentFen() != fen) return@launch
+            deepScoreCp = whitePov(analysis.scoreCp)
+        }
+    }
+
+    /** The engine's score for [sideToMove], restated from White's point of view. */
+    private fun whitePov(sideToMoveScoreCp: Int): Int =
+        if (tree.current().sideToMove == Side.WHITE) sideToMoveScoreCp else -sideToMoveScoreCp
+
+    /** The sentence, in the app's voice: no exclamation marks, no jargon. */
+    private fun coachText(line: CoachLine): String = when (line) {
+        is CoachLine.GaveAway -> "That cost you ${line.lossCp} points of advantage."
+        is CoachLine.MissedWin -> "You had ${line.what} there."
+        is CoachLine.Accurate -> line.what
+    }
+
+    fun toggleArrows() {
+        _state.value = _state.value.copy(showArrows = !_state.value.showArrows)
+    }
+
     private fun maybeAiMove() {
         val position = tree.current()
         if (flagLoser != null || tree.result(playerSide) != null) {
@@ -500,6 +611,7 @@ class GameViewModel(
             saveProgress()
             recordFinishedGame()
             requestEval()
+            coachAfterReply()
         }
     }
 
@@ -598,6 +710,7 @@ class GameViewModel(
             statusText = statusText(position, result, playerSide),
             result = result,
             sans = tree.sanList(),
+            openingName = OpeningBook.nameFor(tree.sanList())?.name,
             capturedByWhite = captured(position, Side.BLACK),
             capturedByBlack = captured(position, Side.WHITE),
             canUndo = tree.canUndo() && !previous.aiThinking,
@@ -750,6 +863,9 @@ class GameViewModel(
         history = save.history
         historyLoaded = true
         applyRestored(saved, replayed)
+        // Same reason as init: the restored position is the baseline the first
+        // move after a resume will be judged against.
+        refreshDeepScore()
         RestoredGame(
             difficulty = saved.difficulty,
             playerSide = saved.playerSide,
@@ -966,3 +1082,20 @@ fun announceText(position: Position, lastSan: String?, result: GameResult?): Str
     }
     return movePart + resultPart
 }
+
+/**
+ * The coaching read's own budget, deliberately not the draw answer's.
+ *
+ * Sharing a budget made two unrelated reads indistinguishable, and the test that
+ * asserts "no draw-offer search happened" then passed a coaching search off as
+ * one. Distinct numbers are what keep the tests able to tell searches apart.
+ */
+private const val COACH_DEPTH = 4
+private const val COACH_MILLIS = 420L
+
+/**
+ * Below this the engine has nothing worth saying. 150cp is about a pawn and a
+ * half: enough that the player can see what happened, not so eager that every
+ * quiet move gets an opinion. Silence is the honest review of a fine move.
+ */
+private const val CoachLossFloorCp = 150

@@ -399,6 +399,53 @@ class GameViewModelTest {
         aiDispatcher = aiDispatcher,
     )
 
+    // -- Coaching ---------------------------------------------------------
+
+    @Test
+    fun aQuietGameGetsNoCoachingLine() = runTest(scheduler) {
+        val vm = drawViewModel(engine = ScriptedEngine(scoreCp = 20))
+        advanceUntilIdle()
+        vm.onDrop(parseSquare("e2") ?: error("sq"), parseSquare("e4") ?: error("sq"))
+        advanceUntilIdle()
+        assertNull(vm.state.value.coachLine)
+    }
+
+    @Test
+    fun aCostlyMoveIsReportedOnceTheComputerHasAnswered() = runTest(scheduler) {
+        // Three reads happen before the reply lands — the baseline, the bar and
+        // the eval bar — all at zero. After the reply the engine sees White down
+        // four hundred, which is a lost pawn and change: enough to speak.
+        val engine = ScriptedEngine(scoreScript = listOf(0, 0, 0, -420, 0))
+        val vm = drawViewModel(engine = engine)
+        advanceUntilIdle()
+        vm.onDrop(parseSquare("e2") ?: error("sq"), parseSquare("e4") ?: error("sq"))
+        advanceUntilIdle()
+        val line = vm.state.value.coachLine
+        assertNotNull("a move that cost 420cp should be reported", line)
+        assertTrue("the line should say it cost something: $line", line!!.contains("cost"))
+    }
+
+    @Test
+    fun aSmallLossIsNotWorthInterruptingAGameFor() = runTest(scheduler) {
+        val engine = ScriptedEngine(scoreScript = listOf(0, 0, 0, -80, 0))
+        val vm = drawViewModel(engine = engine)
+        advanceUntilIdle()
+        vm.onDrop(parseSquare("e2") ?: error("sq"), parseSquare("e4") ?: error("sq"))
+        advanceUntilIdle()
+        assertNull(vm.state.value.coachLine)
+    }
+
+    @Test
+    fun theCoachSearchesOnItsOwnBudgetNotTheDrawAnswers() {
+        // Two reads that answer different questions must not be told apart by
+        // their limits, or a test asserting "no draw search happened" cannot
+        // trust itself.
+        val vm = drawViewModel()
+        assertFalse(vm.coachLimits() == vm.drawOfferLimits())
+        assertFalse(vm.coachLimits() == vm.evalLimits())
+        assertFalse(vm.coachLimits() == vm.reviewLimits())
+    }
+
     /** Offers, lets the answer land, and hands back what the game ended as. */
     private fun offerAndResult(scoreCp: Int): GameResult? {
         val vm = drawViewModel(scoreCp = scoreCp)
@@ -418,7 +465,14 @@ private class ScriptedEngine(
     private val scoreCp: Int = 0,
     private val noAnswer: Boolean = false,
     private val throwsOnAnalyze: Boolean = false,
+    /**
+     * Scores to hand out in order, then the last one forever. A coach that only
+     * ever sees a constant number can never be caught saying nothing, and one
+     * that sees a real swing can be caught saying too much.
+     */
+    private val scoreScript: List<Int>? = null,
 ) : Engine {
+    private var scoreIndex = 0
     /** How many times the draw-answer search was asked for a number. */
     var analyzeCalls = 0
 
@@ -446,6 +500,12 @@ private class ScriptedEngine(
         analyzeLimitsSeen += limits
         if (throwsOnAnalyze) throw IllegalStateException("engine has no answer")
         val move = if (noAnswer) UciMove("0000") else findBestMove(positionFen, limits)
-        return Analysis(move, scoreCp)
+        val script = scoreScript
+        val score = if (script == null || script.isEmpty()) {
+            scoreCp
+        } else {
+            script[scoreIndex.coerceAtMost(script.lastIndex)].also { scoreIndex++ }
+        }
+        return Analysis(move, score)
     }
 }

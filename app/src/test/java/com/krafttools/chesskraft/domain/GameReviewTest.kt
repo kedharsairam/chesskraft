@@ -114,6 +114,57 @@ class GameReviewTest {
     }
 
     @Test
+    fun evalAfterIsTheScoreOfThePositionReached() {
+        // Scripted scores are the side-to-move's view, so the value White keeps
+        // after a move is the *negated* score of the position that move made —
+        // the same number cpLoss is computed from, read the other way round.
+        val result = GameReview.build(
+            opening.fens,
+            opening.sans,
+            script(opening, listOf(0, 0, 19, 1, 78, 2, 197, 3, 347)),
+        )
+        assertEquals(listOf(0, -19, -1, -78, -2, -197, -3, -347), result.moves.map { it.evalAfterCp })
+    }
+
+    @Test
+    fun everyMoveGetsOneEvaluationAndNoPositionIsSearchedTwice() {
+        // The evaluation comes out of the pass that already graded the move, so
+        // asking for it must not add a single question to the analyser.
+        val analyser = script(opening, List(opening.fens.size) { 40 })
+        val result = GameReview.build(opening.fens, opening.sans, analyser)
+        assertEquals(8, result.moves.size)
+        assertEquals(8, result.moves.count { it.evalAfterCp != null })
+        assertEquals(opening.fens.size, analyser.asked.size)
+        assertEquals(opening.fens.toSet().size, analyser.asked.toSet().size)
+    }
+
+    @Test
+    fun evalAfterIsNullWhereTheAnalyserWasNot() {
+        // Only the last position is left unanswered: every move that reached it
+        // has no evaluation to report, and the one before it still does.
+        val partial = Script(
+            opening.fens.dropLast(1).mapIndexed { i, fen ->
+                fen to Analysis(UciMove(opening.moveUcis.getOrElse(i) { "0000" }), 20 * (i + 1))
+            }.toMap(),
+        )
+        val result = GameReview.build(opening.fens, opening.sans, partial)
+        assertEquals(
+            listOf(-40, -60, -80, -100, -120, -140, -160, null),
+            result.moves.map { it.evalAfterCp },
+        )
+        // The move that reached the unseen position is graded as usual (140
+        // against -160 is a three-hundred blunder) and the move *out* of it has
+        // no evaluation to report — but the engine's pick before it is still
+        // there, so the line knows what it wanted.
+        assertEquals(MoveVerdict.BLUNDER, result.moves[6].verdict)
+        assertEquals(300, result.moves[6].cpLoss)
+        assertEquals(MoveVerdict.BEST, result.moves[7].verdict)
+        assertEquals(0, result.moves[7].cpLoss)
+        assertEquals("Nf6", result.moves[7].bestSan)
+        assertNull(result.moves[7].evalAfterCp)
+    }
+
+    @Test
     fun matePlayedIsBest() {
         // The engine sees mate in three; White mates now instead. The engine's
         // slower line must not turn a mate into a mistake.
@@ -132,6 +183,9 @@ class GameReviewTest {
         assertEquals(MoveVerdict.BEST, move.verdict)
         assertEquals(0, move.cpLoss)
         assertEquals("Nf3", move.bestSan)
+        // The evaluation keeps the search's own mate encoding rather than being
+        // flattened: from White's side the position it reached is a mate.
+        assertEquals(29_000, move.evalAfterCp)
     }
 
     @Test
@@ -152,6 +206,8 @@ class GameReviewTest {
         assertEquals(MoveVerdict.BLUNDER, move.verdict)
         // 28_900 - 300: the mate it gave up, counted in centipawns.
         assertEquals(28_600, move.cpLoss)
+        // White's evaluation of where the move left it: Black is a pawn up.
+        assertEquals(300, move.evalAfterCp)
     }
 
     @Test
@@ -296,6 +352,9 @@ class GameReviewTest {
         assertTrue(result.moves.all { it.verdict == MoveVerdict.BEST })
         assertTrue(result.moves.all { it.cpLoss == 0 })
         assertTrue(result.moves.all { it.bestSan == null })
+        // Nothing was searched, so there is nothing to report as an evaluation
+        // either — a null here, never a zero standing in for "unknown".
+        assertTrue(result.moves.all { it.evalAfterCp == null })
         // Nothing could be weighed, so nothing counts against either side.
         assertEquals(100, result.accuracyWhite)
         assertEquals(100, result.accuracyBlack)

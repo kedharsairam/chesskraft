@@ -45,6 +45,12 @@ data class GameUiState(
     val nudgeToken: Int = 0,
     val nudgeSquare: Int? = null,
     val canUndo: Boolean = false,
+    /** One plain sentence about the player's last move, or null for nothing to say. */
+    val coachLine: String? = null,
+    /** Name of the opening in progress, once one is recognised. */
+    val openingName: String? = null,
+    /** Board arrows: the last-move arrow and the engine's better move. */
+    val showArrows: Boolean = true,
     /** Engine score for the position, White's point of view, null if unknown. */
     val evalCp: Int? = null,
     /** Clock banks in ms, null when the game has no clock. */

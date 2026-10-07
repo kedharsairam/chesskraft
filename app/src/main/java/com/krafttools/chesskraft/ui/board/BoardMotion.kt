@@ -35,6 +35,16 @@ class BoardMotion(private val reduceMotion: Boolean) {
     var selectPulse by mutableFloatStateOf(0f)
         private set
 
+    /**
+     * Opacity of the last-move arrow, 0 -> 1 on the same 150ms as the slide.
+     * Not a second animation system: the arrow fades in *with* the move, so
+     * there is never a frame where the arrow and the sliding piece disagree
+     * about where the move went. Snaps to 1 under ReduceMotion, and sits at 0
+     * when there is no last move to point at.
+     */
+    var arrowAlpha by mutableFloatStateOf(0f)
+        private set
+
     // ── Rejected drop ──────────────────────────────────────────────────
     //
     // The board never decides legality — the domain does, in the ViewModel — so
@@ -68,6 +78,7 @@ class BoardMotion(private val reduceMotion: Boolean) {
     private val flash = Animatable(0f)
     private val pulse = Animatable(0f)
     private val back = Animatable(1f)
+    private val arrow = Animatable(0f)
 
     suspend fun onPositionChanged(pieces: List<Int>, from: Int?, to: Int?) {
         val move = from to to
@@ -80,6 +91,9 @@ class BoardMotion(private val reduceMotion: Boolean) {
         if (reduceMotion) {
             slideProgress = 1f
             captureAlpha = 0f
+            // No fade under ReduceMotion: the arrow is simply there, and the
+            // sliding piece is simply landed.
+            arrowAlpha = if (from != null && to != null) 1f else 0f
             return
         }
         if (from != null && to != null) {
@@ -91,6 +105,16 @@ class BoardMotion(private val reduceMotion: Boolean) {
                     slideProgress = 0f
                     slide.animateTo(1f, animationSpec = SlideSpec) { slideProgress = value }
                     slideProgress = 1f
+                }
+                // The arrow fades in alongside the slide, on the same 150ms and
+                // the same easing: it rides the move rather than announcing it
+                // afterwards, so on the first frame of the slide the arrow is
+                // not yet there and there is nothing for the piece to fight.
+                launch {
+                    arrow.snapTo(0f)
+                    arrowAlpha = 0f
+                    arrow.animateTo(1f, animationSpec = ArrowSpec) { arrowAlpha = value }
+                    arrowAlpha = 1f
                 }
                 launch {
                     if (isCapture) {
@@ -104,8 +128,10 @@ class BoardMotion(private val reduceMotion: Boolean) {
                 }
             }
         } else {
+            // No last move: nothing to point at, so no arrow.
             slideProgress = 1f
             captureAlpha = 0f
+            arrowAlpha = 0f
         }
     }
 
@@ -182,6 +208,8 @@ class BoardMotion(private val reduceMotion: Boolean) {
         val ReturnSpec = tween<Float>(durationMillis = SlideMs, easing = FastOutLinearInEasing)
         val CaptureSpec = tween<Float>(durationMillis = CaptureMs)
         val PulseSpec = tween<Float>(durationMillis = PulseMs, easing = FastOutSlowInEasing)
+        // Same length and easing as the slide, deliberately: one move, one motion.
+        val ArrowSpec = SlideSpec
     }
 }
 
