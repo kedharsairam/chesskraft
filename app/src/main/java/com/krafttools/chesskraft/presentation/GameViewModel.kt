@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 
 /**
  * Game flow. Tap-tap and drag both land here as square pairs, legality comes
@@ -59,6 +60,7 @@ class GameViewModel(
 
     init {
         refresh()
+        requestEval()
         startClockIfNeeded()
         maybeAiMove()
     }
@@ -145,6 +147,7 @@ class GameViewModel(
             targets = emptyMap(),
             pendingPromotion = emptyList(),
             hintMove = null,
+            drawOfferPending = false,
         )
         refresh()
     }
@@ -163,11 +166,74 @@ class GameViewModel(
         }
     }
 
+    /**
+     * Offers a draw and answers it the way a person would: from the position
+     * on the board right now, which is always the position the computer just
+     * replied into — its own view of the game, not a re-search of the player's
+     * move from before.
+     *
+     * The answer is the engine's judgement, never a coin toss, so the same
+     * position always gets the same answer. Accepting and declining differ
+     * only in what they publish: an accepted offer sets [GameResult.DrawAgreed],
+     * and a declined one leaves the game exactly as it was with the pending
+     * flag cleared. Nothing else in the state moves.
+     *
+     * Only legal on the player's own turn: mid-search the computer is not
+     * listening, and after the game is over there is nothing to agree to.
+     * The search runs on [aiDispatcher] — the caller never waits on it.
+     */
+    fun offerDraw() {
+        val current = _state.value
+        if (current.result != null || current.aiThinking || current.drawOfferPending) return
+        if (tree.current().sideToMove != playerSide) return
+        val fen = tree.currentFen()
+        _state.value = current.copy(drawOfferPending = true)
+        viewModelScope.launch(aiDispatcher) {
+            val scoreCp = drawOfferScore(fen)
+            // An offer that outlived its position is not an offer any more:
+            // undo, a new game or a resign during the search clears the flag,
+            // and the fen check catches anything that changed the board.
+            val stillCurrent = _state.value.drawOfferPending && tree.currentFen() == fen
+            _state.value = _state.value.copy(drawOfferPending = false)
+            if (scoreCp != null && stillCurrent && abs(scoreCp) < DRAW_ACCEPT_LIMIT_CP) {
+                _state.value = _state.value.copy(result = GameResult.DrawAgreed)
+                playResultCue()
+                refreshStatus()
+            }
+        }
+    }
+
+    /**
+     * The computer's score for the offered position, or null when it has none
+     * to give.
+     *
+     * Null means decline. An engine that throws, and an engine that answers
+     * with the null move ["0000"], have both said they cannot see this
+     * position; agreeing to end a game on a score nobody could produce would
+     * be inventing a verdict, so the conservative answer stands.
+     */
+    private fun drawOfferScore(fen: String): Int? = try {
+        val analysis = engine.analyze(fen, drawOfferLimits())
+        if (analysis.bestMove.text == NULL_UCI) null else analysis.scoreCp
+    } catch (_: RuntimeException) {
+        null
+    }
+
+    /**
+     * Cheap on purpose. A draw offer is answered while the player waits, so
+     * the answer must cost about one human think: depth 4 is enough to tell a
+     * balanced position from a won one, which is the only question being
+     * asked of it.
+     */
+    fun drawOfferLimits(): SearchLimits =
+        SearchLimits(maxDepth = DRAW_OFFER_DEPTH, maxMillis = DRAW_OFFER_MILLIS)
+
     fun newGame() {
         while (tree.canUndo()) tree.undoPly()
         flagLoser = null
         _state.value = GameUiState(playerSide = playerSide, difficulty = difficulty)
         refresh()
+        requestEval()
         startClockIfNeeded()
         maybeAiMove()
     }
@@ -175,7 +241,10 @@ class GameViewModel(
     fun resign() {
         val current = _state.value
         if (current.result != null) return
-        _state.value = current.copy(result = GameResult.Resigned(playerResigned = true))
+        _state.value = current.copy(
+            result = GameResult.Resigned(playerResigned = true),
+            drawOfferPending = false,
+        )
         playResultCue()
         refreshStatus()
     }
@@ -202,11 +271,6 @@ class GameViewModel(
      * bounded amount of work instead of a freeze. Never raised per difficulty:
      * a review is a fact about the game, not about how the game was played.
      */
-    /**
-     * Grades the finished game against the engine, one position at a time,
-     * on the AI dispatcher: N searches x 1.5s is far too long to hold the UI
-     * thread for. Returns null if there is nothing to grade.
-     */
     suspend fun buildReview(): com.krafttools.chesskraft.domain.GameReviewResult? =
         withContext(aiDispatcher) {
             val sans = tree.sanList()
@@ -218,6 +282,11 @@ class GameViewModel(
             )
         }
 
+    /**
+     * Review grading is deliberately independent of difficulty: a lesson that
+     * grades you against a weakened engine teaches you nothing. Depth 6 with a
+     * 1.5s cap per position.
+     */
     fun reviewLimits(): SearchLimits = SearchLimits(maxDepth = 6, maxMillis = 1500L)
 
     // -- Clock ------------------------------------------------------------
@@ -298,6 +367,35 @@ class GameViewModel(
         maybeAiMove()
     }
 
+    /**
+     * Queues a live evaluation of the current position for the bar. Depth 4,
+     * 300ms, off the UI thread, and it never blocks a move: a stale answer is
+     * dropped rather than shown against a position it was not asked about.
+     */
+    private fun requestEval() {
+        val fen = tree.currentFen()
+        viewModelScope.launch {
+            val analysis = withContext(aiDispatcher) {
+                runCatching { engine.analyze(fen, evalLimits()) }.getOrNull()
+            }
+            if (analysis == null || tree.currentFen() != fen) return@launch
+            val cp = if (tree.current().sideToMove == Side.WHITE) {
+                analysis.scoreCp
+            } else {
+                -analysis.scoreCp
+            }
+            _state.value = _state.value.copy(evalCp = cp)
+        }
+    }
+
+    /**
+     * The bar needs a signal, not a judgement: depth 2 in 200ms is plenty to
+     * move a marker, and it keeps the bar off the same budget the draw answer
+     * and the review spend. Deliberately distinct from both so the three are
+     * never confused for each other.
+     */
+    fun evalLimits(): SearchLimits = SearchLimits(maxDepth = 2, maxMillis = 200L)
+
     private fun maybeAiMove() {
         val position = tree.current()
         if (flagLoser != null || tree.result(playerSide) != null) {
@@ -320,6 +418,7 @@ class GameViewModel(
             stopClockSegment()
             _state.value = _state.value.copy(aiThinking = false)
             refresh()
+            requestEval()
         }
     }
 
@@ -508,6 +607,32 @@ class GameViewModel(
         return ok
     }
 }
+
+/**
+ * The computer's bar for agreeing to a draw, in centipawns.
+ *
+ * 200cp is a knight and a bit, or two clean pawns: the smallest edge that is
+ * worth *declining* a draw over. Below it the game is close and taking half
+ * a point is the right call for both sides; at or above it one side is winning
+ * and settling would throw the game away. A mate scores 29000, so a
+ * computer that is mating always declines.
+ *
+ * Deliberately well clear of the noise a shallow search produces. A depth-4
+ * evaluation of an even position wanders, and the limit was chosen so that
+ * noise cannot reach the bar: roughly even game positions measure inside
+ * ±80cp, and a clearly winning one measures several hundred up. A bar at 200
+ * is far enough from both that neither side of the decision is close.
+ */
+const val DRAW_ACCEPT_LIMIT_CP = 200
+
+/** Depth of the quick evaluation behind a draw answer. See [DRAW_ACCEPT_LIMIT_CP]. */
+const val DRAW_OFFER_DEPTH = 4
+
+/** Ceiling for that evaluation, in ms. One human think, no more. */
+const val DRAW_OFFER_MILLIS = 300L
+
+/** The engine's own "no answer" move, per the Engine seam. */
+private const val NULL_UCI = "0000"
 
 /**
  * The one rule that turns four facts about a just-played move into one cue.

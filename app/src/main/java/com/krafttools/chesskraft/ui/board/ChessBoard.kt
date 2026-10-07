@@ -21,9 +21,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -81,7 +83,10 @@ import com.krafttools.chesskraft.ui.theme.ChessKraftColors
  * The board is sized by the smaller of its incoming constraints, so in
  * landscape it fits the height instead of overflowing it. Drag state
  * ([dragFrom]/[dragPos]) lives here, split from the board snapshot, so a
- * finger never mutates what the draw pass reads.
+ * finger never mutates what the draw pass reads — and it is read *only* there,
+ * inside the Canvas lambda, which invalidates the draw and not the composition.
+ * One state write per drop ([dropToken]) is the cost of learning whether a drop
+ * was legal; the finger position costs none.
  */
 @Composable
 fun ChessBoard(
@@ -94,6 +99,9 @@ fun ChessBoard(
     var boardPx by remember { mutableStateOf(0f) }
     var dragFrom by remember { mutableStateOf<Int?>(null) }
     var dragPos by remember { mutableStateOf<Offset?>(null) }
+    // Bumped once per drop. The only drag state the composition observes, and
+    // only as a LaunchedEffect key — never per finger pixel.
+    var dropToken by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     val slopPx = remember(density) {
         with(density) { KraftSpacing.Spacing8.toPx() }
@@ -174,6 +182,8 @@ fun ChessBoard(
                         if (!interactive) return@pointerInput
                         detectDragGestures(
                             onDragStart = { offset ->
+                                // A fresh pickup outranks a piece still flying home.
+                                motion.endReturn()
                                 val sq = BoardGeometry.hitTest(
                                     offset.x, offset.y, boardPx, state.flipped, slopPx,
                                 )
@@ -191,16 +201,24 @@ fun ChessBoard(
                                 val end = dragPos
                                 dragFrom = null
                                 dragPos = null
-                                if (from != null && end != null) {
-                                    val to = BoardGeometry.hitTest(
-                                        end.x, end.y, boardPx, state.flipped, slopPx,
-                                    )
-                                    if (to != null && to != from) onDrop(from, to)
-                                }
+                                if (from == null || end == null) return@detectDragGestures
+                                val to = BoardGeometry.hitTest(
+                                    end.x, end.y, boardPx, state.flipped, slopPx,
+                                )
+                                if (to != null && to != from) onDrop(from, to)
+                                // The piece stays exactly where the finger left it
+                                // either way, and whether it stays or flies home
+                                // is the position's call, not ours. A drop on the
+                                // origin square or off the board never dispatches
+                                // an onDrop, so it arms the same flight — by the
+                                // time the verdict lands it is the same case.
+                                motion.armReturn(from, end.x, end.y)
+                                dropToken++
                             },
                             onDragCancel = {
                                 dragFrom = null
                                 dragPos = null
+                                motion.endReturn()
                             },
                         )
                     },
@@ -217,11 +235,10 @@ fun ChessBoard(
                     art = art,
                     targetSquares = targetSquares,
                     targetCaptures = targetCaptures,
+                    slopPx = slopPx,
                     dragFrom = dragFrom,
                     dragPos = dragPos,
-                    slideProgress = motion.slideProgress,
-                    captureAlpha = motion.captureAlpha,
-                    selectPulse = motion.selectPulse,
+                    motion = motion,
                 )
             }
             // 64 layout-only TalkBack nodes. Transparent, no pointer handling —
@@ -264,6 +281,24 @@ fun ChessBoard(
     LaunchedEffect(state.selected) {
         if (state.selected != null) motion.pulse()
     }
+
+    // The drop verdict. The board does not own legality and does not guess at
+    // it: the domain decides inside the ViewModel, and the only thing visible
+    // from here is whether the origin square still holds its piece afterwards.
+    // Empty means the move landed and the board owns the piece; still occupied
+    // means the drop was refused and the piece flies home.
+    //
+    // Keyed on the position as well as the drop, so a landed move cancels the
+    // flight on the first frame the board change reaches the composition.
+    LaunchedEffect(dropToken, state.pieces) {
+        val square = motion.returnSquare ?: return@LaunchedEffect
+        // One frame of grace. The drop's state write lands *after* this
+        // pointer callback returns, so the position read here can still be the
+        // pre-drop one — and a legal drop must not flash a piece flying home.
+        withFrameNanos { }
+        if (state.pieces[square] != 0) motion.snapBack()
+        motion.endReturn()
+    }
 }
 
 private fun DrawScope.drawBoard(
@@ -277,11 +312,10 @@ private fun DrawScope.drawBoard(
     art: Map<Int, ImageBitmap>,
     targetSquares: IntArray,
     targetCaptures: BooleanArray,
+    slopPx: Float,
     dragFrom: Int?,
     dragPos: Offset?,
-    slideProgress: Float,
-    captureAlpha: Float,
-    selectPulse: Float,
+    motion: BoardMotion,
 ) {
     val boardPx = size.width
     val sq = BoardGeometry.squareSize(boardPx)
@@ -289,6 +323,16 @@ private fun DrawScope.drawBoard(
     val dark = ChessKraftColors.DarkSquare
     val accent = ChessKraftColors.FeltGold
     val error = errorColor
+    // Motion is read here, inside the Canvas lambda, so every animated value
+    // invalidates the draw and none of them recomposes this screen. Flattened
+    // into locals so the drawing below reads as plain numbers.
+    val slideProgress = motion.slideProgress
+    val captureAlpha = motion.captureAlpha
+    val selectPulse = motion.selectPulse
+    val returnSquare = motion.returnSquare
+    val returnProgress = motion.returnProgress
+    // A refused drop: the piece is drawn by the flight in step 11, not here.
+    val flying = returnProgress < 1f && returnSquare != null
 
     // 1. Squares.
     for (square in 0..63) {
@@ -421,7 +465,30 @@ private fun DrawScope.drawBoard(
         )
     }
 
-    // 7. Coordinates inside the corners, in the opposite square colour so
+    // 7. Drag target: the square under the finger, outlined and faintly
+    // washed, so the board says where the piece would land before you let go.
+    // Resolved with the same hitTest and the same slop the pointer input drops
+    // with — the outline never promises a square the drop would refuse, and it
+    // clears itself the moment the drag does, because dragPos goes with it.
+    // Gold, like every other marker on the felt: the app's green accent is the
+    // dark square's own colour and would vanish into it.
+    val dragOver = dragPos?.let {
+        BoardGeometry.hitTest(it.x, it.y, boardPx, state.flipped, slopPx)
+    }
+    if (dragOver != null) {
+        val (col, row) = BoardGeometry.displayCell(dragOver, state.flipped)
+        val topLeft = Offset(col * sq, row * sq)
+        val square = Size(sq, sq)
+        drawRect(color = accent.copy(alpha = DragTargetWashAlpha), topLeft = topLeft, size = square)
+        drawRect(
+            color = accent,
+            topLeft = topLeft,
+            size = square,
+            style = Stroke(width = DragTargetStroke.toPx()),
+        )
+    }
+
+    // 8. Coordinates inside the corners, in the opposite square colour so
     // they read on light and dark wood alike. Layouts are cached per label;
     // steady state measures nothing.
     for (i in coordLabels.indices) {
@@ -445,7 +512,7 @@ private fun DrawScope.drawBoard(
         drawText(layout, topLeft = topLeft)
     }
 
-    // 8. Pieces, cached per (glyph, square size). The sliding piece is drawn
+    // 9. Pieces, cached per (glyph, square size). The sliding piece is drawn
     // at its lerped position; its landing square is skipped until it lands.
     val slidingPiece = if (slideProgress < 1f && lastFrom != null && lastTo != null) {
         state.pieces[lastTo]
@@ -455,6 +522,8 @@ private fun DrawScope.drawBoard(
     for (square in 0..63) {
         if (square == lastTo && slidingPiece != 0) continue
         if (square == dragFrom && dragPos != null) continue
+        // The one piece in flight owns itself until it lands.
+        if (flying && square == returnSquare) continue
         val code = state.pieces[square]
         if (code == 0) continue
         drawArtPiece(art, code, cellCenter(square, boardPx, state.flipped), sq)
@@ -468,11 +537,65 @@ private fun DrawScope.drawBoard(
         )
         drawArtPiece(art, slidingPiece, at, sq)
     }
-    // Dragged piece follows the finger, drawn last so it floats above.
+
+    // 10. The piece under the finger. Drawn last so it floats above everything,
+    // and centred half a square up and left of the touch point: a thumb covers
+    // the origin it drags from, so the piece has to sit clear of it. Scaled and
+    // outlined so it reads as picked up rather than painted on — a lift, not a
+    // drop shadow: no blur, no second pass, nothing a budget phone has to pay for.
     if (dragFrom != null && dragPos != null) {
         val code = state.pieces[dragFrom]
-        if (code != 0) drawArtPiece(art, code, dragPos, sq)
+        if (code != 0) {
+            drawLiftedPiece(
+                art = art,
+                code = code,
+                center = Offset(dragPos.x - sq / 2f, dragPos.y - sq / 2f),
+                box = sq * DragLiftScale,
+            )
+        }
     }
+
+    // 11. A refused drop: the piece carries itself home over 150ms instead of
+    // blinking out where the finger left it. Starts from the same offset the
+    // drag ended at, so the handover is invisible, and settles as it goes —
+    // the lift unwinds into the square it came from.
+    if (flying && returnSquare != null) {
+        val code = state.pieces[returnSquare]
+        if (code != 0) {
+            val home = cellCenter(returnSquare, boardPx, state.flipped)
+            val start = Offset(motion.returnX - sq / 2f, motion.returnY - sq / 2f)
+            drawLiftedPiece(
+                art = art,
+                code = code,
+                center = Offset(
+                    start.x + (home.x - start.x) * returnProgress,
+                    start.y + (home.y - start.y) * returnProgress,
+                ),
+                box = sq * (1f + (DragLiftScale - 1f) * (1f - returnProgress)),
+            )
+        }
+    }
+}
+
+/**
+ * A piece in hand: the art plus a hairline gold frame, both sized to [box].
+ * The outline sits a hair outside the Cburnett art rather than on its edge —
+ * an outline *on* the edge would bite into the fill.
+ */
+private fun DrawScope.drawLiftedPiece(
+    art: Map<Int, ImageBitmap>,
+    code: Int,
+    center: Offset,
+    box: Float,
+) {
+    drawArtPiece(art, code, center, box)
+    val half = box / 2f
+    drawRect(
+        color = ChessKraftColors.FeltGold,
+        topLeft = Offset(center.x - half, center.y - half),
+        size = Size(box, box),
+        style = Stroke(width = box * PieceOutlineWidth),
+    )
 }
 
 private fun cellCenter(square: Int, boardPx: Float, flipped: Boolean): Offset {
@@ -501,3 +624,13 @@ private const val PulseMaxAlpha = 0.7f
 private const val HintAlpha = 0.22f
 private const val CoordPad = 0.06f
 private const val CaptureFlashMax = 0.9f
+
+// Drag feel. Ratios of the square, not dp: a lift is a component metric (how
+// far the piece comes off the felt), and a ratio keeps it identical on a phone
+// board and a tablet one.
+private const val DragLiftScale = 1.08f
+/** Hairline around a lifted piece, as a fraction of its box. */
+private const val PieceOutlineWidth = 0.035f
+private const val DragTargetWashAlpha = 0.15f
+/** 2dp — the drag target outline, matching the weight of the target rings. */
+private val DragTargetStroke = KraftSpacing.Spacing2

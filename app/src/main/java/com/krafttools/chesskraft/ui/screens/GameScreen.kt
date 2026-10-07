@@ -5,6 +5,7 @@
 package com.krafttools.chesskraft.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -199,6 +200,7 @@ fun GameScreen(
                         statusText = if (state.aiThinking) "Thinking…" else state.statusText,
                         onTap = viewModel::onTap,
                         onDrop = viewModel::onDrop,
+                        onOfferDraw = viewModel::offerDraw,
                     )
                 }
             } else {
@@ -221,6 +223,7 @@ fun GameScreen(
                             state = state,
                             playerSide = viewModel.playerSide,
                             statusText = if (state.aiThinking) "Thinking…" else state.statusText,
+                            onOfferDraw = viewModel::offerDraw,
                         )
                     }
                 }
@@ -374,6 +377,7 @@ private fun BoardChrome(
     statusText: String,
     onTap: (Int) -> Unit,
     onDrop: (Int, Int) -> Unit,
+    onOfferDraw: () -> Unit,
 ) {
     PlayerStrip(
         name = opponentName(playerSide, state),
@@ -406,7 +410,13 @@ private fun BoardChrome(
         clockMs = if (playerSide == Side.WHITE) state.clockWhiteMs else state.clockBlackMs,
         label = capturedLabel(playerSide, state.capturedByWhite, state.capturedByBlack),
     )
-    StatusLine(statusText)
+    StatusRow(
+        statusText = statusText,
+        evalCp = state.evalCp,
+        canOfferDraw = state.sideToMove == playerSide && state.result == null,
+        drawPending = state.drawOfferPending,
+        onOfferDraw = onOfferDraw,
+    )
 }
 
 @Composable
@@ -414,6 +424,7 @@ private fun SideChrome(
     state: GameUiState,
     playerSide: Side,
     statusText: String,
+    onOfferDraw: () -> Unit,
 ) {
     PlayerStrip(
         name = opponentName(playerSide, state),
@@ -439,7 +450,13 @@ private fun SideChrome(
         clockMs = if (playerSide == Side.WHITE) state.clockWhiteMs else state.clockBlackMs,
         label = capturedLabel(playerSide, state.capturedByWhite, state.capturedByBlack),
     )
-    StatusLine(statusText)
+    StatusRow(
+        statusText = statusText,
+        evalCp = state.evalCp,
+        canOfferDraw = state.sideToMove == playerSide && state.result == null,
+        drawPending = state.drawOfferPending,
+        onOfferDraw = onOfferDraw,
+    )
 }
 
 /**
@@ -494,23 +511,118 @@ private fun MoveStrip(sans: List<String>, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun StatusLine(statusText: String) {
-    Text(
-        text = statusText,
-        style = MaterialTheme.typography.bodyLarge,
-        color = MaterialTheme.colorScheme.onSurface,
-        textAlign = TextAlign.Center,
+private fun StatusRow(
+    statusText: String,
+    evalCp: Int?,
+    canOfferDraw: Boolean,
+    drawPending: Boolean,
+    onOfferDraw: () -> Unit,
+) {
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(
-                horizontal = KraftSpacing.Spacing16,
-                vertical = KraftSpacing.Spacing8,
-            )
-            .semantics(mergeDescendants = true) {
+            .padding(horizontal = KraftSpacing.ScreenEdge, vertical = KraftSpacing.Spacing8),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = statusText,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.semantics(mergeDescendants = true) {
                 contentDescription = "Status. $statusText"
             },
-    )
+        )
+        EvalBar(evalCp = evalCp)
+        Spacer(Modifier.height(KraftSpacing.Spacing4))
+        TextButton(
+            onClick = onOfferDraw,
+            enabled = canOfferDraw && !drawPending,
+            modifier = Modifier
+                .defaultMinSize(minHeight = KraftSpacing.Spacing40)
+                .semantics(mergeDescendants = true) {
+                    contentDescription = "Offer a draw to the computer."
+                },
+        ) {
+            Text(
+                text = when {
+                    drawPending -> "Asking…"
+                    !canOfferDraw -> "Draw"
+                    else -> "Offer draw"
+                },
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+    }
 }
+
+/**
+ * The eval bar, horizontal: who is better, from the engine. White's edge
+ * fills from the centre toward Black, capped at +/-3 pawns so a winning
+ * position does not pin the marker to the end and stop moving. Word + bar,
+ * never the bar alone.
+ */
+@Composable
+private fun EvalBar(evalCp: Int?) {
+    if (evalCp == null) return
+    val fraction = (evalCp.coerceIn(-EvalBarCp, EvalBarCp).toFloat() / EvalBarCp)
+    val track = MaterialTheme.colorScheme.onSurface
+    val fill = if (evalCp >= 0) {
+        MaterialTheme.colorScheme.onSurface
+    } else {
+        MaterialTheme.colorScheme.outline
+    }
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = KraftSpacing.Spacing6)
+            .height(EvalBarThickness.dp)
+            .semantics(mergeDescendants = true) {
+                contentDescription = if (fraction >= 0f) {
+                    "White is better by about ${pawns(evalCp)}."
+                } else {
+                    "Black is better by about ${pawns(-evalCp)}."
+                }
+            },
+    ) {
+        val w = size.width
+        val h = size.height
+        val r = h / 2f
+        drawRoundRect(
+            color = track.copy(alpha = 0.18f),
+            size = androidx.compose.ui.geometry.Size(w, h),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
+        )
+        val half = w / 2f
+        val reach = kotlin.math.abs(fraction) * half
+        val left = if (fraction >= 0f) half else half - reach
+        drawRoundRect(
+            color = fill,
+            topLeft = androidx.compose.ui.geometry.Offset(left, 0f),
+            size = androidx.compose.ui.geometry.Size(reach.coerceAtLeast(h), h),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
+        )
+        // Centre notch: the zero line, so "even" is legible.
+        drawLine(
+            color = track.copy(alpha = 0.55f),
+            start = androidx.compose.ui.geometry.Offset(half, 0f),
+            end = androidx.compose.ui.geometry.Offset(half, h),
+            strokeWidth = EvalBarNotchWidth.toFloat(),
+        )
+    }
+}
+
+private fun pawns(cp: Int): String {
+    val p = cp / 100.0
+    return if (p >= 0.95) String.format("%.1f pawns", p) else "${cp} centipawns"
+}
+
+private val EvalBarThickness = 8
+private val EvalBarNotchWidth = 2
+/** +/- three pawns is the end of the scale; beyond that the bar stops moving. */
+private const val EvalBarCp = 300
 
 /**
  * Three dots that cycle while the engine thinks — the waiting state said out

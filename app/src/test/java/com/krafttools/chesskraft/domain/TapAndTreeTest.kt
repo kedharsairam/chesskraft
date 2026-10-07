@@ -149,6 +149,20 @@ class GameTreeTest {
     }
 
     @Test
+    fun agreedDrawIsNotAByProductOfThePosition() {
+        // A tree that is perfectly playable reports nothing: agreeing to a draw
+        // is a decision the two players make, never something the rules find.
+        val tree = GameTree()
+        tree.apply(parseUci("e2e4") ?: error("uci"))
+        assertNull(tree.result(Side.WHITE))
+
+        // And the words are words, in the same shape as every other outcome.
+        assertEquals("Draw agreed", GameResult.DrawAgreed.title)
+        assertEquals("You both agreed to a draw.", GameResult.DrawAgreed.reason)
+        assertFalse(GameResult.DrawAgreed.reason.contains("1/2"))
+    }
+
+    @Test
     fun zobristStableAcrossIdenticalTrees() {
         val first = GameTree()
         val second = GameTree()

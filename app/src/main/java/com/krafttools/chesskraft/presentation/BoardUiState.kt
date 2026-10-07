@@ -38,11 +38,15 @@ data class GameUiState(
     val pendingPromotion: List<ChessMove> = emptyList(),
     val hintMove: ChessMove? = null,
     val aiThinking: Boolean = false,
+    /** A draw offer is with the computer: it is thinking about its answer. */
+    val drawOfferPending: Boolean = false,
     val soundOn: Boolean = true,
     /** Bumped on every illegal tap so the board can shake once. */
     val nudgeToken: Int = 0,
     val nudgeSquare: Int? = null,
     val canUndo: Boolean = false,
+    /** Engine score for the position, White's point of view, null if unknown. */
+    val evalCp: Int? = null,
     /** Clock banks in ms, null when the game has no clock. */
     val clockWhiteMs: Long? = null,
     val clockBlackMs: Long? = null,

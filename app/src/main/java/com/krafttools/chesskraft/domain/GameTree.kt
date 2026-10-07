@@ -43,6 +43,15 @@ sealed interface GameResult {
         override val reason: String get() = "Draw — neither side can mate with these pieces."
     }
 
+    /**
+     * The game ended because both players said yes. Not a rule's verdict and
+     * not a position on the board — a decision, and worded like one.
+     */
+    data object DrawAgreed : GameResult {
+        override val title: String get() = "Draw agreed"
+        override val reason: String get() = "You both agreed to a draw."
+    }
+
     data class Resigned(val playerResigned: Boolean) : GameResult {
         override val title: String get() = if (playerResigned) "You resigned" else "They resigned"
         override val reason: String get() = "Game over — the game was resigned."
