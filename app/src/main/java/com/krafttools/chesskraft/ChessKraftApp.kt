@@ -32,6 +32,7 @@ private data class GameConfig(
     val difficulty: Difficulty,
     val playerSide: Side,
     val flipped: Boolean,
+    val timeControlMs: Long?,
 )
 
 private sealed interface Route {
@@ -51,9 +52,9 @@ fun ChessKraftApp() {
 
     when (val current = route) {
         Route.Home -> HomeScreen(
-            onPlay = { difficulty, side, flipped ->
+            onPlay = { difficulty, side, flipped, timeControlMs ->
                 gameSeq += 1
-                route = Route.Game(GameConfig(gameSeq, difficulty, side, flipped))
+                route = Route.Game(GameConfig(gameSeq, difficulty, side, flipped, timeControlMs))
             },
         )
         is Route.Game -> {
@@ -95,6 +96,7 @@ private class GameViewModelFactory(private val config: GameConfig) : ViewModelPr
             playerSide = config.playerSide,
             difficulty = config.difficulty,
             engine = OwnEngine(Random(config.key)),
+            timeControlMs = config.timeControlMs,
         )
         if (config.flipped) viewModel.flip()
         return viewModel as T

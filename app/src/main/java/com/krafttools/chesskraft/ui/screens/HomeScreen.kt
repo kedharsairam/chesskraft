@@ -59,6 +59,14 @@ enum class SideChoice {
     RANDOM,
 }
 
+/** Clock presets. Off keeps the untimed game; anything else arms both banks. */
+enum class TimeChoice(val label: String, val ms: Long?) {
+    OFF("Off", null),
+    FIVE("5 min", 5L * 60L * 1000L),
+    TEN("10 min", 10L * 60L * 1000L),
+    FIFTEEN("15 min", 15L * 60L * 1000L),
+}
+
 /**
  * Home / New Game. A header that says what the app is, one grouped setup
  * card (strength, colour, flip), and the single Play action pinned bottom.
@@ -66,12 +74,13 @@ enum class SideChoice {
  */
 @Composable
 fun HomeScreen(
-    onPlay: (Difficulty, Side, Boolean) -> Unit,
+    onPlay: (Difficulty, Side, Boolean, Long?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var difficulty by remember { mutableStateOf(Difficulty.CASUAL) }
     var sideChoice by remember { mutableStateOf(SideChoice.WHITE) }
     var flipped by remember { mutableStateOf(false) }
+    var timeChoice by remember { mutableStateOf(TimeChoice.TEN) }
 
     Column(modifier = modifier.fillMaxSize()) {
         Column(
@@ -86,6 +95,8 @@ fun HomeScreen(
                 onDifficulty = { difficulty = it },
                 sideChoice = sideChoice,
                 onSide = { sideChoice = it },
+                timeChoice = timeChoice,
+                onTime = { timeChoice = it },
                 flipped = flipped,
                 onFlip = { flipped = !flipped },
             )
@@ -103,7 +114,7 @@ fun HomeScreen(
                         Side.BLACK
                     }
                 }
-                onPlay(difficulty, side, flipped)
+                onPlay(difficulty, side, flipped, timeChoice.ms)
             },
             shape = RoundedCornerShape(KraftRadius.Medium),
             colors = ButtonDefaults.buttonColors(),
@@ -188,6 +199,8 @@ private fun SetupCard(
     onDifficulty: (Difficulty) -> Unit,
     sideChoice: SideChoice,
     onSide: (SideChoice) -> Unit,
+    timeChoice: TimeChoice,
+    onTime: (TimeChoice) -> Unit,
     flipped: Boolean,
     onFlip: () -> Unit,
 ) {
@@ -214,6 +227,12 @@ private fun SetupCard(
             SectionLabel("You play")
             Spacer(Modifier.height(KraftSpacing.Spacing8))
             SideRow(sideChoice, onSide)
+            Spacer(Modifier.height(KraftSpacing.Spacing16))
+            CardDivider()
+            Spacer(Modifier.height(KraftSpacing.Spacing16))
+            SectionLabel("Clock")
+            Spacer(Modifier.height(KraftSpacing.Spacing8))
+            TimeRow(timeChoice, onTime)
             Spacer(Modifier.height(KraftSpacing.Spacing8))
             CardDivider()
             FlipRow(flipped = flipped, onFlip = onFlip)
@@ -323,6 +342,22 @@ fun difficultyName(difficulty: Difficulty): String = when (difficulty) {
     Difficulty.CASUAL -> "Casual"
     Difficulty.SHARP -> "Sharp"
     Difficulty.TOUGH -> "Tough"
+}
+
+@Composable
+private fun TimeRow(
+    selected: TimeChoice,
+    onSelect: (TimeChoice) -> Unit,
+) {
+    ChessChoiceRow {
+        for (option in TimeChoice.entries) {
+            ChessChoiceChip(
+                selected = selected == option,
+                label = option.label,
+                onClick = { onSelect(option) },
+            )
+        }
+    }
 }
 
 fun sideName(choice: SideChoice): String = when (choice) {

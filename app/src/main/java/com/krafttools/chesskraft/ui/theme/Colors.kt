@@ -28,8 +28,8 @@ object ChessKraftColors {
      * (KraftTools cyan, kraft-ui amber, PulseKraft blue-violet) so the apps
      * are never confused on a phone screen.
      */
-    val Accent = Color(0xFF81B64C)
-    val OnAccent = Color(0xFF16210C)
+    val Accent = Color(0xFF7FA650)
+    val OnAccent = Color(0xFF1A240E)
 
     /**
      * Tournament gold. Felt-side decor only — board frame, last-move wash,
@@ -40,21 +40,21 @@ object ChessKraftColors {
 
     // Chess.com-dark chrome: warm charcoal, not phone black. Three steps —
     // page, card, raised — separated by tint, finished with hairlines.
-    val Page = Color(0xFF211E1B)
-    val Card = Color(0xFF2B2724)
-    val CardRaised = Color(0xFF35302B)
-    val Ink = Color(0xFFF2EDE4)
-    val InkDim = Color(0xFFB8AEA1)
-    val Hairline = Color(0xFF4A443D)
-    val HairlineSoft = Color(0xFF38332E)
-    val TileEdge = Color(0xFF3E3833)
+    val Page = Color(0xFF302C29)
+    val Card = Color(0xFF3A352F)
+    val CardRaised = Color(0xFF48423B)
+    val Ink = Color(0xFFEDE8E0)
+    val InkDim = Color(0xFFB3A99C)
+    val Hairline = Color(0xFF57514A)
+    val HairlineSoft = Color(0xFF453F39)
+    val TileEdge = Color(0xFF4E4840)
     // Felt: tournament green over the charcoal page. Adjacent-square
     // contrast is ~2.8:1, the strongest mainstream default: the grid reads at
     // a glance without vibrating. Gold washes and the red check both sit on
     // top of it. Declared here (the palette) so `colour.per-app-declared`
     // stays green.
-    val LightSquare = Color(0xFFEEEED2)
-    val DarkSquare = Color(0xFF769656)
+    val LightSquare = Color(0xFFEBECD0)
+    val DarkSquare = Color(0xFF739552)
     // Cburnett art (see Pieces.kt + NOTICE): cream faces stay distinct from
     // the charcoal chrome; espresso reads on light felt directly.
     val PieceWhite = Color(0xFFF7F1DE)

@@ -68,6 +68,16 @@ import com.krafttools.chesskraft.ui.board.ChessBoard
 import com.krafttools.chesskraft.ui.board.GameOverSheet
 import com.krafttools.chesskraft.ui.board.PieceMark
 import com.krafttools.chesskraft.ui.board.PromotionDialog
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.Undo
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.kraft.ui.tokens.KraftIconSize
 import kotlinx.coroutines.delay
 
 /**
@@ -88,6 +98,21 @@ fun GameScreen(
     var confirmResign by remember { mutableStateOf(false) }
     var sheetOpen by remember { mutableStateOf(false) }
 
+    // Clock cadence: the ViewModel owns the arithmetic, the composable owns
+    // the heartbeat, so no coroutine loop lives in the ViewModel.
+    LaunchedEffect(Unit) {
+        if (state.clockWhiteMs != null) {
+            while (true) {
+                viewModel.markClockStart(System.currentTimeMillis())
+                delay(ClockTickMs)
+                val start = viewModel.clockStartedAt()
+                if (start != null) {
+                    viewModel.onElapsed(System.currentTimeMillis() - start)
+                }
+                if (viewModel.state.value.result != null) break
+            }
+        }
+    }
     LaunchedEffect(Unit) {
         if (viewModel.soundPlayer == null) {
             viewModel.soundPlayer = SoundPlayer(context).also {
@@ -303,6 +328,7 @@ private fun BoardChrome(
         },
         victimSide = playerSide,
         active = state.sideToMove != playerSide,
+        clockMs = if (playerSide == Side.WHITE) state.clockBlackMs else state.clockWhiteMs,
         label = capturedLabel(playerSide.opponent(), state.capturedByWhite, state.capturedByBlack),
     )
     ChessBoard(
@@ -320,6 +346,7 @@ private fun BoardChrome(
         },
         victimSide = playerSide.opponent(),
         active = state.sideToMove == playerSide,
+        clockMs = if (playerSide == Side.WHITE) state.clockWhiteMs else state.clockBlackMs,
         label = capturedLabel(playerSide, state.capturedByWhite, state.capturedByBlack),
     )
     StatusLine(statusText)
@@ -341,6 +368,7 @@ private fun SideChrome(
         },
         victimSide = playerSide,
         active = state.sideToMove != playerSide,
+        clockMs = if (playerSide == Side.WHITE) state.clockBlackMs else state.clockWhiteMs,
         label = capturedLabel(playerSide.opponent(), state.capturedByWhite, state.capturedByBlack),
     )
     PlayerStrip(
@@ -352,6 +380,7 @@ private fun SideChrome(
         },
         victimSide = playerSide.opponent(),
         active = state.sideToMove == playerSide,
+        clockMs = if (playerSide == Side.WHITE) state.clockWhiteMs else state.clockBlackMs,
         label = capturedLabel(playerSide, state.capturedByWhite, state.capturedByBlack),
     )
     StatusLine(statusText)
@@ -439,6 +468,7 @@ private fun PlayerStrip(
     pieces: List<PieceType>,
     victimSide: Side,
     active: Boolean,
+    clockMs: Long?,
     label: String,
 ) {
     Row(
@@ -483,7 +513,53 @@ private fun PlayerStrip(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
+            Spacer(Modifier.size(KraftSpacing.Spacing8))
         }
+        if (clockMs != null) {
+            ClockPill(clockMs = clockMs, running = active)
+        }
+    }
+}
+
+/**
+ * The clock pill: mm:ss, tabular by construction (two digits every field),
+ * red under twenty seconds with a semibold promotion. Null clock (untimed
+ * game) renders nothing — no pill, no placeholder, no explanation owed.
+ */
+@Composable
+private fun ClockPill(clockMs: Long, running: Boolean) {
+    val totalSeconds = (clockMs / 1000L).coerceAtLeast(0L)
+    val text = "%d:%02d".format(totalSeconds / 60L, totalSeconds % 60L)
+    val low = clockMs < ClockLowMs
+    Card(
+        shape = RoundedCornerShape(KraftRadius.Small),
+        colors = CardDefaults.cardColors(
+            containerColor = if (low) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHighest
+            },
+        ),
+        modifier = Modifier.semantics(mergeDescendants = true) {
+            contentDescription = "Clock. $text remaining."
+        },
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontWeight = FontWeight.SemiBold,
+            ),
+            color = if (low) {
+                MaterialTheme.colorScheme.onError
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+            maxLines = 1,
+            modifier = Modifier.padding(
+                horizontal = KraftSpacing.Spacing8,
+                vertical = KraftSpacing.Spacing4,
+            ),
+        )
     }
 }
 
@@ -576,48 +652,51 @@ private fun ToolbarRow(
             horizontalArrangement = Arrangement.SpaceEvenly,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            ToolbarButton("Undo", "Take back your last move", canUndo, onUndo)
-            ToolbarButton("Hint", "Show a suggested move", true, onHint)
-            ToolbarButton("New", "Start a new game", true, onNew)
-            ToolbarButton("Resign", "Give up this game", true, onResign, destructive = true)
-            ToolbarButton("Flip", "Turn the board around", true, onFlip)
+            ToolbarIcon(Icons.Filled.Undo, "Undo", "Take back your last move", canUndo, onUndo)
+            ToolbarIcon(Icons.Filled.Lightbulb, "Hint", "Show a suggested move", true, onHint)
+            ToolbarIcon(Icons.Filled.Add, "New", "Start a new game", true, onNew)
+            ToolbarIcon(
+                Icons.Filled.Flag,
+                "Resign",
+                "Give up this game",
+                true,
+                onResign,
+                destructive = true,
+            )
+            ToolbarIcon(Icons.Filled.SwapVert, "Flip", "Turn the board around", true, onFlip)
         }
     }
 }
 
 @Composable
-private fun ToolbarButton(
+private fun ToolbarIcon(
+    icon: ImageVector,
     label: String,
     description: String,
     enabled: Boolean,
     onClick: () -> Unit,
     destructive: Boolean = false,
 ) {
-    TextButton(
+    // Icon-only, so the icon is invisible to TalkBack and the name + action
+    // do the talking. Never color-alone: Resign is the only red thing here.
+    IconButton(
         onClick = onClick,
         enabled = enabled,
-        colors = ButtonDefaults.textButtonColors(
-            contentColor = if (destructive) {
-                MaterialTheme.colorScheme.error
-            } else {
-                MaterialTheme.colorScheme.onSurface
-            },
-            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        ),
         modifier = Modifier
-            .defaultMinSize(
-                minWidth = KraftSpacing.Spacing48,
-                minHeight = KraftSpacing.Spacing48,
-            )
+            .size(KraftSpacing.Spacing48)
             .semantics(mergeDescendants = true) {
                 contentDescription = "$label. $description."
             },
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium.copy(
-                fontWeight = FontWeight.SemiBold,
-            ),
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = when {
+                !enabled -> MaterialTheme.colorScheme.onSurfaceVariant
+                destructive -> MaterialTheme.colorScheme.error
+                else -> MaterialTheme.colorScheme.onSurface
+            },
+            modifier = Modifier.size(KraftIconSize.Medium),
         )
     }
 }
@@ -625,3 +704,7 @@ private fun ToolbarButton(
 /** Board share of the width budget in landscape; the rest is strips + status. */
 private const val BoardLandscapeFraction = 0.62f
 private const val CheckHapticGapMs = 90L
+/** Under twenty seconds the pill goes red. Twenty, not ten: at ten the game is already panic. */
+private const val ClockLowMs = 20_000L
+/** Four beats a second: a second-resolution clock does not need more, and 250ms keeps the pill from stuttering. */
+private const val ClockTickMs = 250L

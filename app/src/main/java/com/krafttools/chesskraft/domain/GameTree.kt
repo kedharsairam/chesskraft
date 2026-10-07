@@ -47,6 +47,16 @@ sealed interface GameResult {
         override val title: String get() = if (playerResigned) "You resigned" else "They resigned"
         override val reason: String get() = "Game over — the game was resigned."
     }
+
+    data class TimeForfeit(val loser: Side, val playerSide: Side) : GameResult {
+        override val title: String get() = if (loser == playerSide) "You lost on time" else "You win on time"
+        override val reason: String
+            get() = if (loser == playerSide) {
+                "Flag — your clock ran out."
+            } else {
+                "Flag — their clock ran out."
+            }
+    }
 }
 
 /**

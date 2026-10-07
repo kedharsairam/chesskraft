@@ -11,6 +11,7 @@ import com.krafttools.chesskraft.engine.Difficulty
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -155,5 +156,36 @@ class GameViewModelTest {
         vm.hint()
         advanceUntilIdle()
         assertNotNull(vm.state.value.hintMove)
+    }
+
+    @Test
+    fun untimedGameHasNoClocks() {
+        val vm = viewModel()
+        assertNull(vm.state.value.clockWhiteMs)
+        assertNull(vm.state.value.clockBlackMs)
+    }
+
+    @Test
+    fun clockBurnsAndFlags() {
+        val vm = GameViewModel(
+            playerSide = Side.WHITE,
+            difficulty = Difficulty.CASUAL,
+            engine = FakeEngine(seed = 7L),
+            aiDispatcher = scheduler,
+            timeControlMs = 10_000L,
+        )
+        assertEquals(10_000L, vm.state.value.clockWhiteMs)
+        // White sits for 9s: bank drains, no verdict yet.
+        vm.onElapsed(9_000L)
+        assertEquals(1_000L, vm.state.value.clockWhiteMs)
+        assertNull(vm.state.value.result)
+        // One more second: flag, and the words say so.
+        vm.onElapsed(1_000L)
+        val result = vm.state.value.result
+        assertTrue(result is GameResult.TimeForfeit)
+        assertEquals(Side.WHITE, (result as GameResult.TimeForfeit).loser)
+        // And it stays flagged: no ticks after the flag.
+        vm.onElapsed(5_000L)
+        assertEquals(0L, vm.state.value.clockWhiteMs)
     }
 }

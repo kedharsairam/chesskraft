@@ -43,4 +43,7 @@ data class GameUiState(
     val nudgeToken: Int = 0,
     val nudgeSquare: Int? = null,
     val canUndo: Boolean = false,
+    /** Clock banks in ms, null when the game has no clock. */
+    val clockWhiteMs: Long? = null,
+    val clockBlackMs: Long? = null,
 )

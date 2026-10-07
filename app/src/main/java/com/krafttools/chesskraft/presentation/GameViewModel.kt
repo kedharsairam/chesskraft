@@ -7,6 +7,7 @@ package com.krafttools.chesskraft.presentation
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.krafttools.chesskraft.domain.ChessMove
+import com.krafttools.chesskraft.domain.ChessClock
 import com.krafttools.chesskraft.domain.GameResult
 import com.krafttools.chesskraft.domain.GameTree
 import com.krafttools.chesskraft.domain.PieceCode
@@ -40,8 +41,15 @@ class GameViewModel(
     private val engine: Engine = FakeEngine(),
     private val aiDispatcher: CoroutineDispatcher = Dispatchers.Default,
     var soundPlayer: SoundPlayer? = null,
+    private val timeControlMs: Long? = null,
+    private val clockTickMs: Long = 100L,
+    private val nowMs: () -> Long = { System.currentTimeMillis() },
 ) : ViewModel() {
     private val tree = GameTree()
+    private var clock: ChessClock? = null
+    private var clockStartedAtMs: Long? = null
+    /** Set when a clock flags; the tree position itself is not terminal. */
+    private var flagLoser: Side? = null
 
     private val _state = MutableStateFlow(
         GameUiState(playerSide = playerSide, difficulty = difficulty),
@@ -50,6 +58,7 @@ class GameViewModel(
 
     init {
         refresh()
+        startClockIfNeeded()
         maybeAiMove()
     }
 
@@ -155,8 +164,10 @@ class GameViewModel(
 
     fun newGame() {
         while (tree.canUndo()) tree.undoPly()
+        flagLoser = null
         _state.value = GameUiState(playerSide = playerSide, difficulty = difficulty)
         refresh()
+        startClockIfNeeded()
         maybeAiMove()
     }
 
@@ -181,6 +192,65 @@ class GameViewModel(
     fun exportHistory(): Pair<List<String>, List<String>> =
         tree.fenHistory() to tree.sanList()
 
+    // -- Clock ------------------------------------------------------------
+
+    /**
+     * The clock is elapsed-driven, not a coroutine loop: a ticker inside the
+     * ViewModel fights the test scheduler (found the hard way — a `delay`
+     * loop under runTest spins at 100% CPU forever) and burns a core for a
+     * number nobody reads most of the time. Instead the UI asks for elapsed
+     * time, and this decides. Same state, one authority, testable without a
+     * scheduler.
+     */
+    fun startClockIfNeeded() {
+        val total = timeControlMs
+        flagLoser = null
+        if (total == null) {
+            clock = null
+            clockStartedAtMs = null
+            _state.value = _state.value.copy(clockWhiteMs = null, clockBlackMs = null)
+            return
+        }
+        clock = ChessClock(total, total)
+        clockStartedAtMs = null
+        _state.value = _state.value.copy(clockWhiteMs = total, clockBlackMs = total)
+    }
+
+    /**
+     * Burns [elapsedMs] from the side to move and publishes both banks.
+     * Called by the UI's ticker, and by tests directly. Idempotent-safe to
+     * call with 0.
+     */
+    fun onElapsed(elapsedMs: Long) {
+        val active = clock ?: return
+        val flag = flagLoser
+        if (flag != null || elapsedMs <= 0L) return
+        val mover = tree.current().sideToMove
+        val flagged = active.tick(mover, elapsedMs)
+        _state.value = _state.value.copy(
+            clockWhiteMs = active.whiteMs,
+            clockBlackMs = active.blackMs,
+        )
+        if (flagged != null) {
+            flagLoser = flagged
+            clockStartedAtMs = null
+            refresh()
+            refreshStatus()
+        }
+    }
+
+    /** Begins (or resumes) measuring the current turn for the UI ticker. */
+    fun markClockStart(nowMs: Long) {
+        if (clock != null && flagLoser == null) clockStartedAtMs = nowMs
+    }
+
+    fun clockStartedAt(): Long? = clockStartedAtMs
+
+    /** One-second heartbeats keep ticking while the AI thinks; moves reset it. */
+    private fun stopClockSegment() {
+        clockStartedAtMs = null
+    }
+
     // -- Internals --------------------------------------------------------
 
     private fun playPlayerMove(move: ChessMove) {
@@ -192,13 +262,14 @@ class GameViewModel(
             return
         }
         soundPlayer?.playTap()
+        stopClockSegment()
         refresh()
         maybeAiMove()
     }
 
     private fun maybeAiMove() {
         val position = tree.current()
-        if (tree.result(playerSide) != null) {
+        if (flagLoser != null || tree.result(playerSide) != null) {
             refreshStatus()
             return
         }
@@ -212,6 +283,7 @@ class GameViewModel(
                 ?: tree.current().generateLegalMoves().firstOrNull()
             if (move != null) tree.apply(move)
             soundPlayer?.playTap()
+            stopClockSegment()
             _state.value = _state.value.copy(aiThinking = false)
             refresh()
         }
@@ -240,7 +312,12 @@ class GameViewModel(
         val previous = _state.value
         val legal = position.generateLegalMoves()
         val inCheck = position.isInCheck()
-        val result = tree.result(playerSide)
+        val flag = flagLoser
+        val result = if (flag != null) {
+            GameResult.TimeForfeit(loser = flag, playerSide = playerSide)
+        } else {
+            tree.result(playerSide)
+        }
         val lastUci = if (tree.plyCount > 0) {
             // Re-derive last move squares from the FEN trail: cheap and truthful.
             lastMoveOf(tree)
@@ -268,13 +345,21 @@ class GameViewModel(
             capturedByWhite = captured(position, Side.BLACK),
             capturedByBlack = captured(position, Side.WHITE),
             canUndo = tree.canUndo() && !previous.aiThinking,
+            clockWhiteMs = clock?.whiteMs,
+            clockBlackMs = clock?.blackMs,
         )
     }
 
     private fun refreshStatus() {
         val position = tree.current()
+        val flag = flagLoser
+        val result = if (flag != null) {
+            GameResult.TimeForfeit(loser = flag, playerSide = playerSide)
+        } else {
+            tree.result(playerSide)
+        }
         _state.value = _state.value.copy(
-            statusText = statusText(position, tree.result(playerSide), playerSide),
+            statusText = statusText(position, result, playerSide),
             result = tree.result(playerSide) ?: _state.value.result,
             canUndo = tree.canUndo() && !_state.value.aiThinking,
         )
