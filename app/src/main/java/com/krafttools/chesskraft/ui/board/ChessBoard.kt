@@ -60,11 +60,11 @@ import com.krafttools.chesskraft.ui.theme.ChessKraftColors
  * layout only depends on (glyph, font size), so after the first frame the draw
  * pass measures nothing and allocates nothing.
  */
-private class PieceLayoutCache {
-    var bucket: Int = Int.MIN_VALUE
-    val edge: HashMap<Int, TextLayoutResult> = HashMap(12)
-    val face: HashMap<Int, TextLayoutResult> = HashMap(12)
-}
+/**
+ * No piece cache: the six vector silhouettes are tiny (under two dozen verbs
+ * each) and drawPath tessellation at 32 pieces holds 60fps on budget phones.
+ * Caching would buy nothing and would key on glyph+size buckets forever.
+ */
 
 /**
  * The board. One Compose [Canvas] — a single draw pass — plus 64
@@ -104,10 +104,10 @@ fun ChessBoard(
     // 9–13sp band), per-square contrasting tone, no chips or backplates.
     val coordStyle = MaterialTheme.typography.labelMedium
     val coordOnLight = remember(coordStyle) {
-        coordStyle.copy(color = ChessKraftColors.DarkSquare)
+        coordStyle.copy(color = ChessKraftColors.CoordOnLight)
     }
     val coordOnDark = remember(coordStyle) {
-        coordStyle.copy(color = ChessKraftColors.LightSquare)
+        coordStyle.copy(color = ChessKraftColors.CoordOnDark)
     }
     val announcement = remember(state.pieces, state.statusText, state.sans) {
         announceText(snapshot, state.sans.lastOrNull(), state.result) + " " + state.statusText
@@ -120,7 +120,6 @@ fun ChessBoard(
     val coordLayouts = remember(coordLabels, coordOnLight, coordOnDark, fontScale) {
         arrayOfNulls<TextLayoutResult>(coordLabels.size)
     }
-    val pieceCache = remember(fontScale) { PieceLayoutCache() }
     val targetSquares = remember(state.targets) { state.targets.keys.toIntArray() }
     val targetCaptures = remember(state.targets, targetSquares) {
         BooleanArray(targetSquares.size) { i -> state.targets[targetSquares[i]] == true }
@@ -198,7 +197,6 @@ fun ChessBoard(
                     coordLayouts = coordLayouts,
                     coordOnLight = coordOnLight,
                     coordOnDark = coordOnDark,
-                    pieceCache = pieceCache,
                     targetSquares = targetSquares,
                     targetCaptures = targetCaptures,
                     dragFrom = dragFrom,
@@ -258,7 +256,6 @@ private fun DrawScope.drawBoard(
     coordLayouts: Array<TextLayoutResult?>,
     coordOnLight: TextStyle,
     coordOnDark: TextStyle,
-    pieceCache: PieceLayoutCache,
     targetSquares: IntArray,
     targetCaptures: BooleanArray,
     dragFrom: Int?,
@@ -441,7 +438,7 @@ private fun DrawScope.drawBoard(
         if (square == dragFrom && dragPos != null) continue
         val code = state.pieces[square]
         if (code == 0) continue
-        drawPiece(measurer, pieceCache, code, cellCenter(square, boardPx, state.flipped), sq)
+        drawVectorPiece(code, cellCenter(square, boardPx, state.flipped), sq)
     }
     if (slidingPiece != 0 && lastFrom != null && lastTo != null) {
         val fromCenter = cellCenter(lastFrom, boardPx, state.flipped)
@@ -450,96 +447,18 @@ private fun DrawScope.drawBoard(
             fromCenter.x + (toCenter.x - fromCenter.x) * slideProgress,
             fromCenter.y + (toCenter.y - fromCenter.y) * slideProgress,
         )
-        drawPiece(measurer, pieceCache, slidingPiece, at, sq)
+        drawVectorPiece(slidingPiece, at, sq)
     }
     // Dragged piece follows the finger, drawn last so it floats above.
     if (dragFrom != null && dragPos != null) {
         val code = state.pieces[dragFrom]
-        if (code != 0) drawPiece(measurer, pieceCache, code, dragPos, sq)
+        if (code != 0) drawVectorPiece(code, dragPos, sq)
     }
 }
 
 private fun cellCenter(square: Int, boardPx: Float, flipped: Boolean): Offset {
     val point = BoardGeometry.squareCenter(square, boardPx, flipped)
     return Offset(point.x, point.y)
-}
-
-/** Cburnett-style glyphs drawn as text: outline forms for White, solid for Black. */
-fun glyphFor(code: Int): String {
-    val type = PieceCode.typeOf(code) ?: return ""
-    val white = code > 0
-    return when (type) {
-        PieceType.KING -> if (white) "\u2654" else "\u265A"
-        PieceType.QUEEN -> if (white) "\u2655" else "\u265B"
-        PieceType.ROOK -> if (white) "\u2656" else "\u265C"
-        PieceType.BISHOP -> if (white) "\u2657" else "\u265D"
-        PieceType.KNIGHT -> if (white) "\u2658" else "\u265E"
-        PieceType.PAWN -> if (white) "\u2659" else "\u265F"
-    }
-}
-
-private fun DrawScope.drawPiece(
-    measurer: TextMeasurer,
-    cache: PieceLayoutCache,
-    code: Int,
-    center: Offset,
-    sq: Float,
-) {
-    val glyph = glyphFor(code)
-    if (glyph.isEmpty()) return
-    val bucket = (sq * BucketScale).toInt()
-    if (cache.bucket != bucket) {
-        cache.bucket = bucket
-        cache.edge.clear()
-        cache.face.clear()
-    }
-    // One TextStyle per size bucket exists only on a cache miss; steady state
-    // reuses the measured layouts and allocates nothing.
-    val fontSize: TextUnit = (sq * PieceScale).toSp()
-    if (code > 0) {
-        // White: light face with a thick dark edge so it reads on light wood.
-        // An edge, not a shadow — same centre, one step out, four ways.
-        var edge = cache.edge[code]
-        if (edge == null) {
-            edge = measurer.measure(
-                glyph,
-                style = TextStyle(color = ChessKraftColors.PieceBlack, fontSize = fontSize),
-            )
-            cache.edge[code] = edge
-        }
-        var face = cache.face[code]
-        if (face == null) {
-            face = measurer.measure(
-                glyph,
-                style = TextStyle(color = ChessKraftColors.PieceWhite, fontSize = fontSize),
-            )
-            cache.face[code] = face
-        }
-        val edgeStep = (sq * EdgeStep).coerceAtLeast(1f)
-        val baseX = center.x - edge.size.width / 2f
-        val baseY = center.y - edge.size.height / 2f
-        drawText(edge, topLeft = Offset(baseX + edgeStep, baseY))
-        drawText(edge, topLeft = Offset(baseX - edgeStep, baseY))
-        drawText(edge, topLeft = Offset(baseX, baseY + edgeStep))
-        drawText(edge, topLeft = Offset(baseX, baseY - edgeStep))
-        drawText(
-            face,
-            topLeft = Offset(center.x - face.size.width / 2f, center.y - face.size.height / 2f),
-        )
-    } else {
-        var layout = cache.face[code]
-        if (layout == null) {
-            layout = measurer.measure(
-                glyph,
-                style = TextStyle(color = ChessKraftColors.PieceBlack, fontSize = fontSize),
-            )
-            cache.face[code] = layout
-        }
-        drawText(
-            layout,
-            topLeft = Offset(center.x - layout.size.width / 2f, center.y - layout.size.height / 2f),
-        )
-    }
 }
 
 private const val PieceScale = 0.78f

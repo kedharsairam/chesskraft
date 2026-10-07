@@ -34,7 +34,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextAlign
 import com.kraft.ui.tokens.KraftRadius
 import com.kraft.ui.tokens.KraftSpacing
 import com.krafttools.chesskraft.domain.ChessMove
@@ -114,10 +113,9 @@ fun PromotionDialog(
                                     }
                                 },
                         ) {
-                            Text(
-                                text = glyphFor(code),
-                                style = MaterialTheme.typography.headlineMedium,
-                                textAlign = TextAlign.Center,
+                            PieceMark(
+                                code = code,
+                                modifier = Modifier.size(KraftSpacing.Spacing40),
                             )
                         }
                     }

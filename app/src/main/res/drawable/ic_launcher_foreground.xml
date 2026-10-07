@@ -3,18 +3,18 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- 2x2 board: brass and deep brown. No text, no detail — reads at 48dp. -->
+    <!-- Tournament green felt, gold frame. No text, no detail — reads at 48dp. -->
     <path
-        android:fillColor="#D8B45A"
+        android:fillColor="#EEEED2"
         android:pathData="M22,22h32v32h-32z" />
     <path
-        android:fillColor="#3A2C14"
+        android:fillColor="#769656"
         android:pathData="M54,22h32v32h-32z" />
     <path
-        android:fillColor="#3A2C14"
+        android:fillColor="#769656"
         android:pathData="M22,54h32v32h-32z" />
     <path
-        android:fillColor="#D8B45A"
+        android:fillColor="#EEEED2"
         android:pathData="M54,54h32v32h-32z" />
     <path
         android:fillColor="#00000000"

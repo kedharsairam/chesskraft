@@ -29,17 +29,24 @@ object ChessKraftColors {
     val Accent = Color(0xFFD8B45A)
     val OnAccent = Color(0xFF241A08)
 
-    // Board wood: the lichess brown default, light #F0D9B5 over dark #B58863.
-    // Adjacent-square contrast is ~2.29:1 — enough to read the grid at a glance
-    // without vibrating. Brass markers and red check both sit on top of it.
-    // Declared here (the palette) so `colour.per-app-declared` stays green.
-    val LightSquare = Color(0xFFF0D9B5)
-    val DarkSquare = Color(0xFFB58863)
-    // Outline-first piece set (Cburnett-style): paper-white faces stay
-    // mid-tone-distinct from the dark app chrome, and read on light wood
-    // only via the near-black edge drawn under them — never a shadow.
-    val PieceWhite = Color(0xFFF5EFE2)
-    val PieceBlack = Color(0xFF1B1712)
+    // Board felt: tournament green — light #EEEED2 over dark #769656.
+    // Adjacent-square contrast is ~2.8:1, the strongest mainstream default:
+    // the grid reads at a glance without vibrating. Brass washes and the
+    // red check both sit on top of it. Declared here (the palette) so
+    // `colour.per-app-declared` stays green.
+    val LightSquare = Color(0xFFEEEED2)
+    val DarkSquare = Color(0xFF769656)
+    // Our own vector set (see Pieces.kt): cream faces stay mid-tone-distinct
+    // from the dark chrome; espresso reads on light felt directly. Edges are
+    // drawn strokes — never shadows, never font glyphs.
+    val PieceWhite = Color(0xFFF7F1DE)
+    val PieceBlack = Color(0xFF2A2118)
+    val PieceEdgeDark = Color(0xFF3A2C14)
+    val PieceEdgeLight = Color(0xFFF7F1DE)
+    // Coordinates whisper in the square's own family, darkened one step so
+    // text stays readable on its own square. No chips, no backplates.
+    val CoordOnLight = Color(0xFF4F7038)
+    val CoordOnDark = Color(0xFFEEEED2)
 
     /**
      * The scheme. Structural colours come from the foundation so a change there reaches every

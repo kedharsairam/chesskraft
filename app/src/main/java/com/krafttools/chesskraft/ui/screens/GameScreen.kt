@@ -46,6 +46,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import com.krafttools.chesskraft.ui.board.PieceMark
 import com.kraft.ui.tokens.KraftRadius
 import com.kraft.ui.tokens.KraftSpacing
 import com.kraft.ui.tokens.KraftTypeScale
@@ -58,8 +59,8 @@ import com.krafttools.chesskraft.presentation.GameViewModel
 import com.krafttools.chesskraft.presentation.SoundPlayer
 import com.krafttools.chesskraft.ui.board.ChessBoard
 import com.krafttools.chesskraft.ui.board.GameOverSheet
+import com.krafttools.chesskraft.ui.board.PieceMark
 import com.krafttools.chesskraft.ui.board.PromotionDialog
-import com.krafttools.chesskraft.ui.board.glyphFor
 import kotlinx.coroutines.delay
 
 /**
@@ -368,13 +369,17 @@ private fun CapturedStrip(label: String, pieces: List<PieceType>, victimSide: Si
             .padding(horizontal = KraftSpacing.Spacing16, vertical = KraftSpacing.Spacing4)
             .semantics(mergeDescendants = true) { contentDescription = label },
     ) {
-        Text(
-            text = pieces.joinToString(" ") { glyphFor(PieceCode.of(victimSide, it)) },
-            style = MaterialTheme.typography.bodyLarge,
-            maxLines = 2,
-            overflow = TextOverflow.Clip,
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(KraftSpacing.Spacing2),
             modifier = Modifier.weight(1f),
-        )
+        ) {
+            for (type in pieces) {
+                PieceMark(
+                    code = PieceCode.of(victimSide, type),
+                    modifier = Modifier.size(KraftSpacing.Spacing24),
+                )
+            }
+        }
         val material = pieces.sumOf { pieceValue(it) } / 100
         if (material > 0) {
             Text(

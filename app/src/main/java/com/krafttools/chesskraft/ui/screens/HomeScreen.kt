@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
@@ -43,8 +44,11 @@ import androidx.compose.ui.text.font.FontWeight
 import com.kraft.ui.tokens.KraftRadius
 import com.kraft.ui.tokens.KraftSpacing
 import com.kraft.ui.tokens.KraftTypeScale
+import com.krafttools.chesskraft.domain.PieceCode
+import com.krafttools.chesskraft.domain.PieceType
 import com.krafttools.chesskraft.domain.Side
 import com.krafttools.chesskraft.engine.Difficulty
+import com.krafttools.chesskraft.ui.board.PieceMark
 import com.krafttools.chesskraft.ui.components.ChessChoiceChip
 import com.krafttools.chesskraft.ui.components.ChessChoiceRow
 
@@ -138,15 +142,12 @@ private fun HeaderBlock() {
                 top = KraftSpacing.Spacing24,
             ),
     ) {
-        Text(
-            text = "♞",
-            style = MaterialTheme.typography.displayLarge.copy(
-                fontSize = MaterialTheme.typography.displayLarge.fontSize * WatermarkScale,
-            ),
-            color = MaterialTheme.colorScheme.primary,
+        PieceMark(
+            code = PieceCode.of(Side.BLACK, PieceType.KNIGHT),
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .offset(y = KraftSpacing.Spacing32)
+                .size(KraftSpacing.Spacing64 * 2)
                 .alpha(KnightWatermarkAlpha),
         )
         Column {
@@ -331,6 +332,4 @@ fun sideName(choice: SideChoice): String = when (choice) {
 }
 
 /** Knight watermark strength: present, never competing with the title. */
-private const val KnightWatermarkAlpha = 0.10f
-/** Watermark is four display lines tall — a mark, not a second title. */
-private const val WatermarkScale = 4f
+private const val KnightWatermarkAlpha = 0.16f
