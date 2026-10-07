@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -115,7 +116,7 @@ private fun ReviewHeader(review: GameReviewResult, playerSide: Side) {
             AccuracyTile(
                 label = "Computer",
                 accuracy = review.accuracyFor(playerSide.opponent()),
-                tone = MaterialTheme.colorScheme.outline,
+                tone = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         Spacer(Modifier.height(KraftSpacing.Spacing16))
@@ -194,7 +195,8 @@ private fun ReviewRow(move: ReviewedMove, isPlayerMove: Boolean) {
             text = "${move.number}.",
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(VerdictNumberWidth),
+            maxLines = 1,
+            modifier = Modifier.width(VerdictNumberWidth),
         )
         Column(Modifier.weight(1f)) {
             Text(
