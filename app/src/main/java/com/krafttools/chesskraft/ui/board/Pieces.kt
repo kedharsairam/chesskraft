@@ -219,7 +219,7 @@ fun DrawScope.drawVectorPiece(code: Int, center: Offset, sidePx: Float) {
 }
 
 private const val PieceBox = 100f
-private const val PieceEdgeWidth = 3f
+private const val PieceEdgeWidth = 2.2f
 private const val PieceEyeRadius = 2.6f
 /** Piece art fills 92% of the square — inset, never edge-to-edge. */
 private const val PieceScale = 0.92f

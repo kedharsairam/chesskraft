@@ -6,6 +6,7 @@ package com.krafttools.chesskraft.ui.screens
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -54,6 +55,7 @@ import com.krafttools.chesskraft.domain.PieceCode
 import com.krafttools.chesskraft.domain.PieceType
 import com.krafttools.chesskraft.domain.Side
 import com.krafttools.chesskraft.domain.pieceValue
+import com.krafttools.chesskraft.engine.Difficulty
 import com.krafttools.chesskraft.presentation.GameUiState
 import com.krafttools.chesskraft.presentation.GameViewModel
 import com.krafttools.chesskraft.presentation.SoundPlayer
@@ -287,14 +289,16 @@ private fun BoardChrome(
     onTap: (Int) -> Unit,
     onDrop: (Int, Int) -> Unit,
 ) {
-    CapturedStrip(
-        label = capturedLabel(playerSide.opponent(), state.capturedByWhite, state.capturedByBlack),
+    PlayerStrip(
+        name = opponentName(playerSide, state),
         pieces = if (playerSide == Side.WHITE) {
             state.capturedByBlack
         } else {
             state.capturedByWhite
         },
         victimSide = playerSide,
+        active = state.sideToMove != playerSide,
+        label = capturedLabel(playerSide.opponent(), state.capturedByWhite, state.capturedByBlack),
     )
     ChessBoard(
         state = state,
@@ -302,14 +306,16 @@ private fun BoardChrome(
         onDrop = onDrop,
         modifier = Modifier.padding(horizontal = KraftSpacing.Spacing16),
     )
-    CapturedStrip(
-        label = capturedLabel(playerSide, state.capturedByWhite, state.capturedByBlack),
+    PlayerStrip(
+        name = "You",
         pieces = if (playerSide == Side.WHITE) {
             state.capturedByWhite
         } else {
             state.capturedByBlack
         },
         victimSide = playerSide.opponent(),
+        active = state.sideToMove == playerSide,
+        label = capturedLabel(playerSide, state.capturedByWhite, state.capturedByBlack),
     )
     StatusLine(statusText)
 }
@@ -320,23 +326,27 @@ private fun SideChrome(
     playerSide: Side,
     statusText: String,
 ) {
-    CapturedStrip(
-        label = capturedLabel(playerSide.opponent(), state.capturedByWhite, state.capturedByBlack),
+    PlayerStrip(
+        name = opponentName(playerSide, state),
         pieces = if (playerSide == Side.WHITE) {
             state.capturedByBlack
         } else {
             state.capturedByWhite
         },
         victimSide = playerSide,
+        active = state.sideToMove != playerSide,
+        label = capturedLabel(playerSide.opponent(), state.capturedByWhite, state.capturedByBlack),
     )
-    CapturedStrip(
-        label = capturedLabel(playerSide, state.capturedByWhite, state.capturedByBlack),
+    PlayerStrip(
+        name = "You",
         pieces = if (playerSide == Side.WHITE) {
             state.capturedByWhite
         } else {
             state.capturedByBlack
         },
         victimSide = playerSide.opponent(),
+        active = state.sideToMove == playerSide,
+        label = capturedLabel(playerSide, state.capturedByWhite, state.capturedByBlack),
     )
     StatusLine(statusText)
 }
@@ -360,8 +370,18 @@ private fun StatusLine(statusText: String) {
     )
 }
 
+/**
+ * A player card: brass turn dot (shape + word, never color-only — the status
+ * line carries the same fact in words), name, captured pieces, material edge.
+ */
 @Composable
-private fun CapturedStrip(label: String, pieces: List<PieceType>, victimSide: Side) {
+private fun PlayerStrip(
+    name: String,
+    pieces: List<PieceType>,
+    victimSide: Side,
+    active: Boolean,
+    label: String,
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -369,6 +389,21 @@ private fun CapturedStrip(label: String, pieces: List<PieceType>, victimSide: Si
             .padding(horizontal = KraftSpacing.Spacing16, vertical = KraftSpacing.Spacing4)
             .semantics(mergeDescendants = true) { contentDescription = label },
     ) {
+        TurnDot(active = active, description = if (active) "$name to move." else "$name waiting.")
+        Spacer(Modifier.size(KraftSpacing.Spacing8))
+        Text(
+            text = name,
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+            ),
+            color = if (active) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            maxLines = 1,
+        )
+        Spacer(Modifier.size(KraftSpacing.Spacing8))
         Row(
             horizontalArrangement = Arrangement.spacedBy(KraftSpacing.Spacing2),
             modifier = Modifier.weight(1f),
@@ -385,10 +420,38 @@ private fun CapturedStrip(label: String, pieces: List<PieceType>, victimSide: Si
             Text(
                 text = "+$material",
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.primary,
             )
         }
     }
+}
+
+@Composable
+private fun TurnDot(active: Boolean, description: String) {
+    val color = if (active) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.outlineVariant
+    }
+    Box(
+        modifier = Modifier
+            .size(KraftSpacing.Spacing8)
+            .semantics { contentDescription = description },
+    ) {
+        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+            drawCircle(color = color)
+        }
+    }
+}
+
+private fun opponentName(playerSide: Side, state: GameUiState): String {
+    val level = when (state.difficulty) {
+        Difficulty.RELAXED -> "Relaxed"
+        Difficulty.CASUAL -> "Casual"
+        Difficulty.SHARP -> "Sharp"
+        Difficulty.TOUGH -> "Tough"
+    }
+    return "Computer · $level"
 }
 
 private fun capturedLabel(

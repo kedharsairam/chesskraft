@@ -5,6 +5,7 @@
 package com.krafttools.chesskraft.ui.board
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -24,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -44,6 +47,7 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.TextUnit
 import com.kraft.ui.motion.rememberReduceMotion
+import com.kraft.ui.tokens.KraftRadius
 import com.kraft.ui.tokens.KraftSpacing
 import com.krafttools.chesskraft.domain.BoardGeometry
 import com.krafttools.chesskraft.domain.CoordLabel
@@ -134,6 +138,15 @@ fun ChessBoard(
             modifier = Modifier
                 .size(side)
                 .aspectRatio(1f)
+                // Tournament frame: rounded felt with a brass hairline, floating
+                // on the black chrome. The frame is drawn, not a shadow — depth
+                // from outline on true black, per the sibling lesson.
+                .clip(RoundedCornerShape(KraftRadius.Medium))
+                .border(
+                    KraftSpacing.Spacing2,
+                    ChessKraftColors.Accent,
+                    RoundedCornerShape(KraftRadius.Medium),
+                )
                 .graphicsLayer { translationX = motion.nudgePx }
                 .semantics(mergeDescendants = false) {
                     liveRegion = LiveRegionMode.Polite
