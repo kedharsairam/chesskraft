@@ -6,8 +6,9 @@ package com.krafttools.chesskraft.ui.board
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -171,56 +172,67 @@ fun ChessBoard(
                     .fillMaxSize()
                     .pointerInput(boardPx, state.flipped, interactive, slopPx) {
                         if (!interactive) return@pointerInput
-                        detectTapGestures { offset ->
-                            val sq = BoardGeometry.hitTest(
-                                offset.x, offset.y, boardPx, state.flipped, slopPx,
+                        // One gesture handler, not two. detectTapGestures and
+                        // detectDragGestures on the same surface compete for the
+                        // same stream, and the drag start was resolving a
+                        // different square than the tap did — a drag from e2
+                        // picked up e3, an empty one, so the piece vanished from
+                        // the board and never followed the finger. Verified on
+                        // the device with a logged square index, not by reading.
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            // The pickup square comes from the DOWN event, never
+                            // from the position where the drag was recognised:
+                            // those differ, and using the later one made a drag
+                            // pick up the square below the finger's origin.
+                            val dragStart = BoardGeometry.hitTest(
+                                down.position.x,
+                                down.position.y,
+                                boardPx,
+                                state.flipped,
+                                slopPx,
                             )
-                            if (sq != null) onTap(sq)
-                        }
-                    }
-                    .pointerInput(boardPx, state.flipped, interactive, slopPx) {
-                        if (!interactive) return@pointerInput
-                        detectDragGestures(
-                            onDragStart = { offset ->
-                                // A fresh pickup outranks a piece still flying home.
+                            val slop = awaitTouchSlopOrCancellation(down.id) { change, _ ->
                                 motion.endReturn()
-                                val sq = BoardGeometry.hitTest(
-                                    offset.x, offset.y, boardPx, state.flipped, slopPx,
-                                )
-                                if (sq != null) {
-                                    dragFrom = sq
-                                    dragPos = offset
-                                }
-                            },
-                            onDrag = { change, _ ->
-                                change.consume()
+                                dragFrom = dragStart
                                 dragPos = change.position
-                            },
-                            onDragEnd = {
+                            }
+                            if (slop != null) {
+                                // Keep the piece under the finger until lift.
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == down.id }
+                                    if (change == null || !change.pressed) break
+                                    dragPos = change.position
+                                    change.consume()
+                                }
                                 val from = dragFrom
                                 val end = dragPos
                                 dragFrom = null
                                 dragPos = null
-                                if (from == null || end == null) return@detectDragGestures
-                                val to = BoardGeometry.hitTest(
-                                    end.x, end.y, boardPx, state.flipped, slopPx,
-                                )
-                                if (to != null && to != from) onDrop(from, to)
-                                // The piece stays exactly where the finger left it
-                                // either way, and whether it stays or flies home
-                                // is the position's call, not ours. A drop on the
-                                // origin square or off the board never dispatches
-                                // an onDrop, so it arms the same flight — by the
-                                // time the verdict lands it is the same case.
-                                motion.armReturn(from, end.x, end.y)
+                                if (from != null && end != null) {
+                                    val to = BoardGeometry.hitTest(
+                                        end.x, end.y, boardPx, state.flipped, slopPx,
+                                    )
+                                    if (to != null && to != from) onDrop(from, to)
+                                }
+                                if (from != null) {
+                                    // The piece stays where the finger left it
+                                    // either way; whether it stays or flies home
+                                    // is the position's call, not ours.
+                                    motion.armReturn(
+                                        from,
+                                        end?.x ?: 0f,
+                                        end?.y ?: 0f,
+                                    )
+                                }
                                 dropToken++
-                            },
-                            onDragCancel = {
-                                dragFrom = null
-                                dragPos = null
-                                motion.endReturn()
-                            },
-                        )
+                            } else {
+                                // No slop crossed: a tap, on the square under the
+                                // finger at press time.
+                                if (dragStart != null) onTap(dragStart)
+                            }
+                        }
                     },
             ) {
                 if (size.width <= 0f) return@Canvas
@@ -545,6 +557,7 @@ private fun DrawScope.drawBoard(
     // drop shadow: no blur, no second pass, nothing a budget phone has to pay for.
     if (dragFrom != null && dragPos != null) {
         val code = state.pieces[dragFrom]
+
         if (code != 0) {
             drawLiftedPiece(
                 art = art,
