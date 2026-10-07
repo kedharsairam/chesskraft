@@ -156,8 +156,11 @@ fun ChessBoard(
                 // from outline on true black, per the sibling lesson.
                 .clip(RoundedCornerShape(KraftRadius.Medium))
                 .border(
-                    KraftSpacing.Spacing2,
-                    ChessKraftColors.FeltGold,
+                    // A hairline, not a gold frame: at 2dp the border became the
+                    // loudest thing on screen and the felt stopped being the
+                    // subject. The board is defined by its own edge now.
+                    KraftSpacing.BorderWidth,
+                    ChessKraftColors.HairlineSoft,
                     RoundedCornerShape(KraftRadius.Medium),
                 )
                 .graphicsLayer { translationX = motion.nudgePx }

@@ -63,6 +63,7 @@ import com.kraft.ui.tokens.KraftTypeScale
 import com.krafttools.chesskraft.domain.PieceCode
 import com.krafttools.chesskraft.domain.PieceType
 import com.krafttools.chesskraft.domain.Side
+import com.krafttools.chesskraft.ui.theme.ChessKraftColors
 import com.krafttools.chesskraft.domain.GameReviewResult
 import com.krafttools.chesskraft.domain.pieceValue
 import com.krafttools.chesskraft.engine.Difficulty
@@ -76,6 +77,9 @@ import com.krafttools.chesskraft.ui.board.PromotionDialog
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.HorizontalRule
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Undo
@@ -201,7 +205,6 @@ fun GameScreen(
                         statusText = if (state.aiThinking) "Thinking…" else state.statusText,
                         onTap = viewModel::onTap,
                         onDrop = viewModel::onDrop,
-                        onOfferDraw = viewModel::offerDraw,
                     )
                 }
             } else {
@@ -224,7 +227,6 @@ fun GameScreen(
                             state = state,
                             playerSide = viewModel.playerSide,
                             statusText = if (state.aiThinking) "Thinking…" else state.statusText,
-                            onOfferDraw = viewModel::offerDraw,
                         )
                     }
                 }
@@ -238,6 +240,9 @@ fun GameScreen(
         }
 
         ToolbarRow(
+            canOfferDraw = state.sideToMove == viewModel.playerSide && state.result == null,
+            drawPending = state.drawOfferPending,
+            onOfferDraw = viewModel::offerDraw,
             canUndo = state.canUndo,
             onUndo = viewModel::undo,
             onHint = viewModel::hint,
@@ -352,20 +357,22 @@ private fun GameTopBar(soundOn: Boolean, onToggleSound: () -> Unit, thinking: Bo
             ThinkingIndicator()
             Spacer(Modifier.size(KraftSpacing.Spacing8))
         }
-        TextButton(
+        // An icon, not a word: a toggle that spells out its state reads as a
+        // status line and pushes the title around. The state is in the icon,
+        // and the sentence is in the semantics for anyone who cannot see it.
+        IconButton(
             onClick = onToggleSound,
-            colors = ButtonDefaults.textButtonColors(
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            ),
             modifier = Modifier
-                .defaultMinSize(minHeight = KraftSpacing.Spacing48)
+                .size(KraftSpacing.Spacing48)
                 .semantics(mergeDescendants = true) {
                     contentDescription = if (soundOn) "Mute move sounds." else "Unmute move sounds."
                 },
         ) {
-            Text(
-                text = if (soundOn) "Sound on" else "Muted",
-                style = MaterialTheme.typography.labelMedium,
+            Icon(
+                imageVector = if (soundOn) Icons.Filled.VolumeUp else Icons.Filled.VolumeOff,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(KraftIconSize.Medium),
             )
         }
     }
@@ -378,7 +385,6 @@ private fun BoardChrome(
     statusText: String,
     onTap: (Int) -> Unit,
     onDrop: (Int, Int) -> Unit,
-    onOfferDraw: () -> Unit,
 ) {
     PlayerStrip(
         name = opponentName(playerSide, state),
@@ -411,13 +417,7 @@ private fun BoardChrome(
         clockMs = if (playerSide == Side.WHITE) state.clockWhiteMs else state.clockBlackMs,
         label = capturedLabel(playerSide, state.capturedByWhite, state.capturedByBlack),
     )
-    StatusRow(
-        statusText = statusText,
-        evalCp = state.evalCp,
-        canOfferDraw = state.sideToMove == playerSide && state.result == null,
-        drawPending = state.drawOfferPending,
-        onOfferDraw = onOfferDraw,
-    )
+    StatusRow(statusText = statusText, evalCp = state.evalCp)
 }
 
 @Composable
@@ -425,7 +425,6 @@ private fun SideChrome(
     state: GameUiState,
     playerSide: Side,
     statusText: String,
-    onOfferDraw: () -> Unit,
 ) {
     PlayerStrip(
         name = opponentName(playerSide, state),
@@ -451,13 +450,7 @@ private fun SideChrome(
         clockMs = if (playerSide == Side.WHITE) state.clockWhiteMs else state.clockBlackMs,
         label = capturedLabel(playerSide, state.capturedByWhite, state.capturedByBlack),
     )
-    StatusRow(
-        statusText = statusText,
-        evalCp = state.evalCp,
-        canOfferDraw = state.sideToMove == playerSide && state.result == null,
-        drawPending = state.drawOfferPending,
-        onOfferDraw = onOfferDraw,
-    )
+    StatusRow(statusText = statusText, evalCp = state.evalCp)
 }
 
 /**
@@ -543,13 +536,7 @@ private fun MoveStrip(sans: List<String>, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun StatusRow(
-    statusText: String,
-    evalCp: Int?,
-    canOfferDraw: Boolean,
-    drawPending: Boolean,
-    onOfferDraw: () -> Unit,
-) {
+private fun StatusRow(statusText: String, evalCp: Int?) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -566,27 +553,6 @@ private fun StatusRow(
             },
         )
         EvalBar(evalCp = evalCp)
-        Spacer(Modifier.height(KraftSpacing.Spacing4))
-        TextButton(
-            onClick = onOfferDraw,
-            enabled = canOfferDraw && !drawPending,
-            modifier = Modifier
-                .defaultMinSize(minHeight = KraftSpacing.Spacing40)
-                .semantics(mergeDescendants = true) {
-                    contentDescription = "Offer a draw to the computer."
-                },
-        ) {
-            Text(
-                text = when {
-                    drawPending -> "Asking…"
-                    !canOfferDraw -> "Draw"
-                    else -> "Offer draw"
-                },
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-            )
-        }
     }
 }
 
@@ -600,11 +566,15 @@ private fun StatusRow(
 private fun EvalBar(evalCp: Int?) {
     if (evalCp == null) return
     val fraction = (evalCp.coerceIn(-EvalBarCp, EvalBarCp).toFloat() / EvalBarCp)
-    val track = MaterialTheme.colorScheme.onSurface
+    // A meter, not a progress bar: white's edge is the app's green, black's is
+    // the quiet outline, and the track sits well back. At equal the bar reads
+    // empty because that is the truth, but the notch says "level", not "loading".
+    val track = MaterialTheme.colorScheme.outlineVariant
+    val notch = MaterialTheme.colorScheme.onSurfaceVariant
     val fill = if (evalCp >= 0) {
-        MaterialTheme.colorScheme.onSurface
+        ChessKraftColors.Accent
     } else {
-        MaterialTheme.colorScheme.outline
+        notch
     }
     Canvas(
         modifier = Modifier
@@ -623,7 +593,7 @@ private fun EvalBar(evalCp: Int?) {
         val h = size.height
         val r = h / 2f
         drawRoundRect(
-            color = track.copy(alpha = 0.18f),
+            color = track,
             size = androidx.compose.ui.geometry.Size(w, h),
             cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
         )
@@ -638,7 +608,7 @@ private fun EvalBar(evalCp: Int?) {
         )
         // Centre notch: the zero line, so "even" is legible.
         drawLine(
-            color = track.copy(alpha = 0.55f),
+            color = notch,
             start = androidx.compose.ui.geometry.Offset(half, 0f),
             end = androidx.compose.ui.geometry.Offset(half, h),
             strokeWidth = EvalBarNotchWidth.toFloat(),
@@ -862,6 +832,9 @@ private fun capturedLabel(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ToolbarRow(
+    canOfferDraw: Boolean,
+    drawPending: Boolean,
+    onOfferDraw: () -> Unit,
     canUndo: Boolean,
     onUndo: () -> Unit,
     onHint: () -> Unit,
@@ -902,6 +875,13 @@ private fun ToolbarRow(
                 destructive = true,
             )
             ToolbarIcon(Icons.Filled.SwapVert, "Flip", "Turn the board around", true, onFlip)
+            ToolbarIcon(
+                Icons.Filled.HorizontalRule,
+                "Offer draw",
+                "Ask the computer for a draw.",
+                canOfferDraw && !drawPending,
+                onOfferDraw,
+            )
         }
     }
 }
