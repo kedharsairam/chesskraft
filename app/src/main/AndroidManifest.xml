@@ -1,13 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Zero permissions. Not "minimal" — none.
+  No permissions. Not "minimal" — none.
 
   No INTERNET: the engine runs on-device and nothing is ever uploaded.
   No storage permissions: games live in the app's own internal storage.
   No microphone, no accounts, no tracking.
 
-  This manifest is the claim. If a permission ever appears here, the README's
-  "no permissions" is false and a test must fail.
+  This file is the claim, and it is enforced. PermissionManifestTest fails if
+  a permission ever appears here, and CI reads the built APK with aapt2 and
+  fails on anything the merge introduces.
+
+  On the shipped APK one entry does appear, and it is not one we wrote:
+  DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION, the signature-level permission
+  androidx.core merges in so an app's own non-exported receivers are safe. It
+  prompts for nothing and confers nothing on anyone else. The tests allow
+  exactly that and nothing more.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 

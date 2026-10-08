@@ -42,8 +42,9 @@ in two places.
 ## Status
 
 v0.1.0. The engine is perft-green and the app is complete against
-`docs/V1-SPEC.md`. 280 unit tests and 21 instrumented tests, kraft-lint clean
-across 103 files.
+`docs/V1-SPEC.md`. 288 unit tests and 21 instrumented tests, kraft-lint clean.
+ReadmeAccuracyTest checks the numbers above against the build, so they cannot
+drift quietly.
 No puzzles: they were deliberately left out of v1.
 
 ## Credits

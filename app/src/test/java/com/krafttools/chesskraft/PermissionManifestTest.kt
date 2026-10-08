@@ -63,12 +63,6 @@ class PermissionManifestTest {
     @Test
     fun theMergedManifestAddsOnlyTheAndroidxSelfPermission() {
         val merged = mergedManifest()
-        if (merged == null) {
-            // `./gradlew test` does not assemble, so the merged manifest may not
-            // exist yet. Skipping is honest here; the CI step reads the built
-            // APK instead, which is the thing that actually ships.
-            return
-        }
         val permissions = permissionsIn(merged.readText())
         assertEquals(
             "The merged manifest should hold exactly the AndroidX self-permission. " +
@@ -79,12 +73,36 @@ class PermissionManifestTest {
     }
 
     @Test
+    fun theSourceManifestIsTheOneThisTestThinksItIsReading() {
+        // Guards the guard. Every other case here reads a file found by walking
+        // the build directory, and a test that cannot find its subject must
+        // fail rather than pass quietly — "nothing to check" and "nothing
+        // found" are different states and only one of them is a pass.
+        val source = File(appModule(), "src/main/AndroidManifest.xml")
+        assertTrue("expected the app manifest at $source", source.isFile)
+        // AGP takes the package from `namespace` in the build file, so the
+        // manifest itself carries no package attribute. What identifies it is
+        // the application tag and this project's own theme.
+        val xml = source.readText()
+        assertTrue(
+            "expected an <application> tag, so this is the app's manifest and " +
+                "not some other file",
+            xml.contains("<application"),
+        )
+        assertTrue(
+            "expected this project's theme, so this is the app's manifest and " +
+                "not some other file",
+            xml.contains("Theme.ChessKraft"),
+        )
+    }
+
+    @Test
     fun noDependencyAsksForAnythingOnTheUsersBehalf() {
         // The specific ones that would break the app's central claim, named so
         // the failure reads as a sentence rather than a diff. A general test
         // above already catches everything; this one exists so that the day it
         // fails, the message says why it matters here.
-        val merged = mergedManifest() ?: return
+        val merged = mergedManifest()
         val forbidden = listOf(
             "android.permission.INTERNET",
             "android.permission.ACCESS_NETWORK_STATE",
@@ -117,18 +135,29 @@ class PermissionManifestTest {
      * finds that one first and reports this app as asking for a permission it
      * has never heard of. The manifest we care about is the one that ships.
      */
-    private fun mergedManifest(): File? {
+    private fun mergedManifest(): File {
         val root = File(appModule(), "build/intermediates")
-        if (!root.isDirectory) return null
-        val candidates = root.walkTopDown()
-            .maxDepth(4)
-            .filter { it.isFile && it.name == "AndroidManifest.xml" }
-            .filter { !it.path.contains("androidTest", ignoreCase = true) }
-            .filter { it.path.contains("merged", ignoreCase = true) }
-            .toList()
-        // Prefer a main-variant merge if several exist.
-        return candidates.firstOrNull { it.path.contains("merged_manifest", ignoreCase = true) }
+        val candidates = if (root.isDirectory) {
+            root.walkTopDown()
+                .maxDepth(4)
+                .filter { it.isFile && it.name == "AndroidManifest.xml" }
+                .filter { !it.path.contains("androidTest", ignoreCase = true) }
+                .filter { it.path.contains("merged", ignoreCase = true) }
+                .toList()
+        } else {
+            emptyList()
+        }
+        val merged = candidates.firstOrNull { it.path.contains("merged_manifest", ignoreCase = true) }
             ?: candidates.firstOrNull()
+        assertTrue(
+            "No merged manifest under $root. This test would otherwise pass " +
+                "without checking anything, which is the exact failure this " +
+                "project has now hit four separate times. Run " +
+                "./gradlew :app:assembleDebug first — the task this suite normally " +
+                "runs after.",
+            merged != null,
+        )
+        return merged!!
     }
 
     /** Every `uses-permission` name in a manifest, in document order. */
