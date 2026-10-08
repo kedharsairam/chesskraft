@@ -59,3 +59,28 @@ jobs:
 
       - name: Lint
         run: ./gradlew lintDebug --no-daemon
+
+      # The privacy claim, checked on the artefact rather than on the source.
+      #
+      # PermissionManifestTest reads the manifests; this reads the built APK,
+      # which is the thing that actually installs. The allowed entry is the
+      # signature-level permission androidx.core merges in so an app's own
+      # non-exported receivers are safe — it prompts for nothing and grants
+      # nothing. Anything else on this list is a dependency asking for
+      # something the app's whole premise says it does not need.
+      - name: Permissions
+        run: |
+          set -euo pipefail
+          ./gradlew :app:assembleDebug --no-daemon
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | tail -n 1)
+          ALLOWED='com.krafttools.chesskraft.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION'
+          FOUND=$("$AAPT" dump permissions "$APK" \
+            | sed -n "s/^uses-permission: name='\\(.*\\)'$/\\1/p" | sort -u)
+          echo "Permissions declared by the APK:"; echo "${FOUND:-  (none)}"
+          UNEXPECTED=$(comm -23 <(echo "$FOUND") <(echo "$ALLOWED" | sort -u))
+          if [ -n "$UNEXPECTED" ]; then
+            echo "::error::the APK declares permissions this app does not claim to need"
+            echo "$UNEXPECTED"
+            exit 1
+          fi
