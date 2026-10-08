@@ -53,4 +53,12 @@ Piece art by Colin M.L. Burnett (Cburnett), used under the 3-clause BSD licence 
 see NOTICE, and the About screen inside the app. Everything else here is written
 from scratch for this project.
 
+## Support
+
+If you enjoy ChessKraft, buy me a coffee:
+
+<p align="center">
+  <a href="https://buymeacoffee.com/kedhartech"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" width="182"></a>
+</p>
+
 MIT licensed. See LICENSE.
