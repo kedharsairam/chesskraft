@@ -208,8 +208,11 @@ private fun PromotionOption(
                 } else {
                     KraftSpacing.BorderWidth
                 },
+                // onPrimary on a primary fill: a primary border on a primary
+                // tile is a border you cannot see, and the thicker stroke is
+                // one of the two shape cues that have to survive greyscale.
                 color = if (selected) {
-                    MaterialTheme.colorScheme.primary
+                    MaterialTheme.colorScheme.onPrimary
                 } else {
                     MaterialTheme.colorScheme.outline
                 },
@@ -236,12 +239,15 @@ private fun PromotionOption(
                         .align(Alignment.TopEnd)
                         .size(KraftSpacing.Spacing16)
                         .clip(RoundedCornerShape(KraftRadius.Pill))
-                        .background(MaterialTheme.colorScheme.primary),
+                        // Inverted on purpose. The tick exists to be a shape
+                        // rather than a tint, so it must not be the same tint as
+                        // the tile it sits on.
+                        .background(MaterialTheme.colorScheme.onPrimary),
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Check,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimary,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(KraftIconSize.Tiny),
                     )
                 }

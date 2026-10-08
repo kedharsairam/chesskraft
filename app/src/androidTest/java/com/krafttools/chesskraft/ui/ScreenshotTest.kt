@@ -17,7 +17,10 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
 import com.krafttools.chesskraft.domain.ChessMove
 import com.krafttools.chesskraft.domain.GameResult
+import com.krafttools.chesskraft.domain.GameReviewResult
+import com.krafttools.chesskraft.domain.MoveVerdict
 import com.krafttools.chesskraft.domain.PieceType
+import com.krafttools.chesskraft.domain.ReviewedMove
 import com.krafttools.chesskraft.domain.Position
 import com.krafttools.chesskraft.domain.Side
 import com.krafttools.chesskraft.engine.Difficulty
@@ -62,7 +65,7 @@ class ScreenshotTest {
         rule.setContent {
             ChessKraftTheme(darkTheme = true) {
                 DarkSurface {
-                    HomeScreen(onPlay = { _, _, _ -> })
+                    HomeScreen(onPlay = { _, _, _, _ -> })
                 }
             }
         }
@@ -108,6 +111,7 @@ class ScreenshotTest {
                     onRematch = {},
                     onNewGame = {},
                     onReview = {},
+                    reviewRunning = false,
                     onDismiss = {},
                     )
                 }
@@ -134,7 +138,21 @@ class ScreenshotTest {
         rule.setContent {
             ChessKraftTheme(darkTheme = true) {
                 DarkSurface {
-                    ReviewScreen(fens = fens, sans = sans, playerSide = Side.WHITE, onBack = {})
+                    ReviewScreen(
+                        review = GameReviewResult(
+                            moves = listOf(
+                                ReviewedMove(1, 1, "e4", MoveVerdict.BEST, 0, "e4", 32),
+                                ReviewedMove(2, 1, "e5", MoveVerdict.MISTAKE, 240, "c5", -18),
+                                ReviewedMove(3, 2, "Nf3", MoveVerdict.INACCURACY, 55, "Nc3", 12),
+                                ReviewedMove(4, 2, "Nc6", MoveVerdict.GOOD, 10, "Nc6", 30),
+                            ),
+                            accuracyWhite = 88,
+                            accuracyBlack = 95,
+                        ),
+                        fens = fens,
+                        playerSide = Side.WHITE,
+                        onBack = {},
+                    )
                 }
             }
         }

@@ -16,12 +16,14 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
@@ -175,18 +177,31 @@ fun GameScreen(
         previous = state
     }
 
+    // Orientation from the configuration, never from any box's own constraints:
+    // an earlier version compared maxWidth > maxHeight here, and any layout
+    // change that shrank the board block flipped the whole screen into the
+    // side-by-side branch mid-game.
+    val landscape = LocalConfiguration.current.orientation ==
+        Configuration.ORIENTATION_LANDSCAPE
+
     Column(modifier = modifier.fillMaxSize().navigationBarsPadding()) {
         // Compact bar: the opponent bar sits directly under it, so the title
         // band is one row tall instead of a wasted 200px. The foundation's
         // default-ink title rendered zero pixels on this screen (node present,
         // nothing drawn — reported to the foundation track), so ink is explicit.
-        GameTopBar(
-            soundOn = state.soundOn,
-            onToggleSound = viewModel::toggleSound,
-            thinking = state.aiThinking,
-            showArrows = state.showArrows,
-            onToggleArrows = viewModel::toggleArrows,
-        )
+        // Portrait keeps the app bar; landscape folds its two toggles into the
+        // toolbar so the board is not paying for two bars of chrome.
+        if (!landscape) {
+            GameTopBar(
+                soundOn = state.soundOn,
+                onToggleSound = viewModel::toggleSound,
+                thinking = state.aiThinking,
+                showArrows = state.showArrows,
+                onToggleArrows = viewModel::toggleArrows,
+            )
+        } else if (state.aiThinking) {
+            ThinkingIndicator()
+        }
 
         // The board is sized by the smaller incoming dimension: full width in
         // portrait, the height budget in landscape with the strips and status
@@ -195,13 +210,32 @@ fun GameScreen(
         // the move-list box below takes the remaining height. Two weighted
         // children split the space in half and the board lost half its size —
         // visible on the device, invisible in the source.
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            // Orientation from the configuration, never from this box's own
-            // constraints: an earlier version compared maxWidth > maxHeight
-            // here, and any layout change that shrank the board block flipped
-            // the whole screen into the side-by-side branch mid-game.
-            val landscape = LocalConfiguration.current.orientation ==
-                Configuration.ORIENTATION_LANDSCAPE
+        BoxWithConstraints(
+            Modifier
+                .fillMaxWidth()
+                // Landscape only. This box wraps its content, so its height was
+                // whatever the board asked for — which meant the board could
+                // take the space the toolbar was going to need and push the
+                // toolbar off the bottom of the screen entirely. In portrait the
+                // box must keep wrapping, because the move list below it is the
+                // child that takes the slack.
+                // Landscape also claims the status-bar inset here, because the
+                // app bar that used to carry it is gone in this orientation and
+                // the board was drawing itself under the system clock.
+                .then(
+                    if (landscape) {
+                        Modifier.weight(1f).statusBarsPadding()
+                    } else {
+                        Modifier
+                    },
+                ),
+        ) {
+            // Height is the binding constraint in landscape, not width: the
+            // board was capped at a fraction of the width and came out a
+            // thumbnail pinned to the left edge of a very wide screen, with the
+            // rest of the display given to nothing. Take the whole height and
+            // let the width fraction only stop the board from being absurd on a
+            // tablet.
             val boardSide = minOf(maxWidth * BoardLandscapeFraction, maxHeight)
             if (!landscape) {
                 // No vertical centring: the board block hugs the top and all
@@ -223,7 +257,14 @@ fun GameScreen(
                     )
                 }
             } else {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // fillMaxHeight on both sides: with a wrapping Row the side
+                // column was centred as a block and the name strips floated in
+                // the middle of the screen instead of sitting at the top with
+                // the move list below them.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxHeight(),
+                ) {
                     ChessBoard(
                         state = state,
                         onTap = viewModel::onTap,
@@ -232,16 +273,33 @@ fun GameScreen(
                             .size(boardSide)
                             .padding(start = KraftSpacing.Spacing16),
                     )
+                    // The side column now holds the whole game, not just the
+                    // two name strips: with only those in it the column was
+                    // vertically centred in half a screen of nothing, and the
+                    // move list — which lives below the board in portrait —
+                    // had nowhere to go in landscape at all.
                     Column(
                         modifier = Modifier
                             .weight(1f)
+                            .fillMaxHeight()
                             .padding(horizontal = KraftSpacing.Spacing16),
-                        verticalArrangement = Arrangement.Center,
                     ) {
                         SideChrome(
                             state = state,
                             playerSide = viewModel.playerSide,
                             statusText = if (state.aiThinking) "Thinking…" else state.statusText,
+                        )
+                        Spacer(Modifier.height(KraftSpacing.Spacing12))
+                        MoveStrip(
+                            sans = state.sans,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                // A landscape phone is 800dp wide and the two
+                                // move columns were 400dp apart, which reads as
+                                // two unrelated lists. Cap the strip and let the
+                                // rest of the column be quiet space.
+                                .widthIn(max = MoveStripMaxWidth),
                         )
                     }
                 }
@@ -250,8 +308,14 @@ fun GameScreen(
 
         // The bottom of the screen belongs to the game story: the move list
         // sits in the slack under the board, where chess.com puts its panel.
-        Box(Modifier.weight(1f)) {
-            MoveStrip(sans = state.sans, modifier = Modifier.fillMaxSize())
+        // Portrait only — in landscape the list is in the side column, and a
+        // weighted empty box here would steal the height the board wants.
+        if (LocalConfiguration.current.orientation ==
+            Configuration.ORIENTATION_PORTRAIT
+        ) {
+            Box(Modifier.weight(1f)) {
+                MoveStrip(sans = state.sans, modifier = Modifier.fillMaxSize())
+            }
         }
 
         ToolbarRow(
@@ -264,6 +328,11 @@ fun GameScreen(
             onNew = onNewGame,
             onResign = { confirmResign = true },
             onFlip = viewModel::flip,
+            showViewToggles = landscape,
+            soundOn = state.soundOn,
+            onToggleSound = viewModel::toggleSound,
+            showArrows = state.showArrows,
+            onToggleArrows = viewModel::toggleArrows,
             modifier = Modifier
                 .navigationBarsPadding()
                 .padding(bottom = KraftSpacing.Spacing8),
@@ -937,6 +1006,14 @@ private fun ToolbarRow(
     onNew: () -> Unit,
     onResign: () -> Unit,
     onFlip: () -> Unit,
+    // Landscape has one bar instead of two. Two 48dp rows of chrome on a 360dp
+    // tall screen cost the board a third of its size, and on a wide screen
+    // there is all the width in the world for a third row of icons.
+    showViewToggles: Boolean = false,
+    soundOn: Boolean = true,
+    onToggleSound: () -> Unit = {},
+    showArrows: Boolean = true,
+    onToggleArrows: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     // One segmented bar, not five floating labels: a hairline container with
@@ -978,6 +1055,22 @@ private fun ToolbarRow(
                 canOfferDraw && !drawPending,
                 onOfferDraw,
             )
+            if (showViewToggles) {
+                ToolbarIcon(
+                    if (showArrows) Icons.Filled.East else Icons.Filled.BlurOff,
+                    "Arrows",
+                    if (showArrows) "Hide the move arrows" else "Show the move arrows",
+                    true,
+                    onToggleArrows,
+                )
+                ToolbarIcon(
+                    if (soundOn) Icons.Filled.VolumeUp else Icons.Filled.VolumeOff,
+                    "Sound",
+                    if (soundOn) "Mute move sounds" else "Unmute move sounds",
+                    true,
+                    onToggleSound,
+                )
+            }
         }
     }
 }
@@ -1015,8 +1108,18 @@ private fun ToolbarIcon(
     }
 }
 
-/** Board share of the width budget in landscape; the rest is strips + status. */
-private const val BoardLandscapeFraction = 0.62f
+/**
+ * Board share of the width budget in landscape.
+ *
+ * The board is normally height-bound here, so this only bites on a wide screen
+ * with height to spare — a tablet, or a landscape window on a desktop. Above
+ * half the width the side column has no room left for the move list, which is
+ * worth more than a slightly larger board.
+ */
+private const val BoardLandscapeFraction = 0.5f
+
+/** Widest the move list is allowed to get before its two columns drift apart. */
+private val MoveStripMaxWidth = KraftSpacing.Spacing64 * 10
 private const val CheckHapticGapMs = 90L
 /** Number column in the move panel — wide enough for three digits. */
 private val MoveNumberWidth = KraftSpacing.Spacing24

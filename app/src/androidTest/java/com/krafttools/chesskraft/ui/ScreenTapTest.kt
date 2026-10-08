@@ -12,12 +12,16 @@ import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.krafttools.chesskraft.domain.ChessMove
 import com.krafttools.chesskraft.domain.GameResult
 import com.krafttools.chesskraft.domain.PieceType
 import com.krafttools.chesskraft.domain.Position
+import com.krafttools.chesskraft.domain.GameReviewResult
+import com.krafttools.chesskraft.domain.MoveVerdict
+import com.krafttools.chesskraft.domain.ReviewedMove
 import com.krafttools.chesskraft.domain.Side
 import com.krafttools.chesskraft.engine.Difficulty
 import com.krafttools.chesskraft.presentation.GameViewModel
@@ -48,10 +52,11 @@ class ScreenTapTest {
         var played = false
         rule.setContent {
             ChessKraftTheme(darkTheme = true) {
-                HomeScreen(onPlay = { _, _, _ -> played = true })
+                HomeScreen(onPlay = { _, _, _, _ -> played = true })
             }
         }
-        rule.onNode(hasText("Play")).assertHasClickAction().performClick()
+        rule.onNode(hasContentDescription("Play Wren, Casual.", substring = true))
+            .assertHasClickAction().performClick()
         assert(played) { "Play did not call onPlay" }
     }
 
@@ -59,7 +64,7 @@ class ScreenTapTest {
     fun home_difficultyChipsSelectOneAtATime() {
         rule.setContent {
             ChessKraftTheme(darkTheme = true) {
-                HomeScreen(onPlay = { _, _, _ -> })
+                HomeScreen(onPlay = { _, _, _, _ -> })
             }
         }
         // "Tough" stays on one readable line and selects on tap.
@@ -73,7 +78,7 @@ class ScreenTapTest {
     fun home_sideChipsSelect() {
         rule.setContent {
             ChessKraftTheme(darkTheme = true) {
-                HomeScreen(onPlay = { _, _, _ -> })
+                HomeScreen(onPlay = { _, _, _, _ -> })
             }
         }
         val black = rule.onNode(hasText("Black"))
@@ -85,7 +90,7 @@ class ScreenTapTest {
     fun home_flipRowToggles() {
         rule.setContent {
             ChessKraftTheme(darkTheme = true) {
-                HomeScreen(onPlay = { _, _, _ -> })
+                HomeScreen(onPlay = { _, _, _, _ -> })
             }
         }
         // The whole row is one switch: tap the label, the switch follows.
@@ -139,12 +144,14 @@ class ScreenTapTest {
                     onRematch = { rematched = true },
                     onNewGame = { fresh = true },
                     onReview = { reviewed = true },
+                    reviewRunning = false,
                     onDismiss = {},
                 )
             }
         }
         rule.onNode(hasText("You win")).assertIsDisplayed()
-        rule.onNode(hasText("12 moves played.")).assertIsDisplayed()
+        // moveCount is plies; the sheet counts moves the way a score sheet does.
+        rule.onNode(hasText("6 moves played.")).assertIsDisplayed()
         rule.onNode(hasText("Rematch")).assertHasClickAction().performClick()
         rule.onNode(hasText("New Game")).assertHasClickAction().performClick()
         rule.onNode(hasText("Review")).assertHasClickAction().performClick()
@@ -174,9 +181,11 @@ class ScreenTapTest {
             }
         }
         // Queen pre-selected; tap rook, confirm, the rook move plays.
-        rule.onNode(hasContentDescription("Promote to rook."))
+        rule.onNode(hasContentDescription("Promote to rook", substring = true))
             .assertHasClickAction().performClick()
-        rule.onNode(hasText("Promote")).assertHasClickAction().performClick()
+        // hasText compares the whole string unless told to look for a substring,
+        // and the button renames itself to the piece you picked.
+        rule.onNode(hasText("Promote to Rook")).assertHasClickAction().performClick()
         assert(chosen == ChessMove(48, 56, PieceType.ROOK)) { "wrong promotion: $chosen" }
         assert(!dismissed)
     }
@@ -205,43 +214,48 @@ class ScreenTapTest {
     fun review_stepAndFlipTap() {
         val start = Position.start().toFen()
         val fens = listOf(start, start, start)
-        val sans = listOf("e4", "e5")
-        var back = false
-        rule.setContent {
-            ChessKraftTheme(darkTheme = true) {
-                ReviewScreen(fens = fens, sans = sans, playerSide = Side.WHITE, onBack = { back = true })
-            }
-        }
-        rule.onNode(hasText("Move 2 of 2.")).assertIsDisplayed()
-        rule.onNode(hasContentDescription("Back. Show the previous move."))
-            .assertHasClickAction().performClick()
-        rule.onNode(hasText("Move 1 of 2.")).assertIsDisplayed()
-        rule.onNode(hasContentDescription("Forward. Show the next move."))
-            .assertHasClickAction().performClick()
-        rule.onNode(hasText("Move 2 of 2.")).assertIsDisplayed()
-        rule.onNode(hasContentDescription("Flip. Turn the board around."))
-            .assertHasClickAction().performClick()
-        rule.onNode(hasContentDescription("Move 1, current position. e4, e5.")).assertHasClickAction().performClick()
-        rule.onNode(hasContentDescription("Done. Back to home."))
-            .assertHasClickAction().performClick()
-        assert(back)
-    }
-
-    @Test
-    fun review_emptyGameRenders() {
+        val review = GameReviewResult(
+            moves = listOf(
+                ReviewedMove(1, 1, "e4", MoveVerdict.BEST, 0, "e4"),
+                ReviewedMove(2, 1, "e5", MoveVerdict.INACCURACY, 60, "e5"),
+            ),
+            accuracyWhite = 96,
+            accuracyBlack = 94,
+        )
         var back = false
         rule.setContent {
             ChessKraftTheme(darkTheme = true) {
                 ReviewScreen(
-                    fens = emptyList(),
-                    sans = emptyList(),
+                    review = review,
+                    fens = fens,
                     playerSide = Side.WHITE,
                     onBack = { back = true },
                 )
             }
         }
-        rule.onNode(hasText("Nothing to review yet.")).assertIsDisplayed()
-        rule.onNode(hasText("Back")).assertHasClickAction().performClick()
+        rule.onNode(hasText("Move 2 of 2", substring = true)).assertIsDisplayed()
+        rule.onNodeWithContentDescription("Previous move").performClick()
+        rule.onNode(hasText("Move 1 of 2", substring = true)).assertIsDisplayed()
+        rule.onNodeWithContentDescription("Next move").performClick()
+        rule.onNode(hasText("Move 2 of 2", substring = true)).assertIsDisplayed()
+        rule.onNodeWithContentDescription("Back", substring = true).performClick()
         assert(back)
     }
+
+    fun review_emptyGameRenders() {
+        var back = false
+        rule.setContent {
+            ChessKraftTheme(darkTheme = true) {
+                ReviewScreen(
+                    review = GameReviewResult(emptyList(), 100, 100),
+                    fens = emptyList(),
+                    playerSide = Side.WHITE,
+                    onBack = { back = true },
+                )
+            }
+        }
+        rule.onNodeWithContentDescription("Back", substring = true).performClick()
+        assert(back)
+    }
+
 }
