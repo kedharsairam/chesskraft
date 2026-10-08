@@ -29,6 +29,7 @@ import com.krafttools.chesskraft.presentation.Route
 import com.krafttools.chesskraft.presentation.decodeRoute
 import com.krafttools.chesskraft.presentation.encodeRoute
 import androidx.compose.ui.platform.LocalContext
+import com.krafttools.chesskraft.ui.screens.AboutScreen
 import com.krafttools.chesskraft.ui.screens.GameScreen
 import com.krafttools.chesskraft.ui.screens.HistoryScreen
 import com.krafttools.chesskraft.ui.screens.HomeScreen
@@ -86,6 +87,7 @@ fun ChessKraftApp() {
                 gameSeq += 1
                 route = Route.Game(gameSeq, difficulty, side, flipped, timeControlMs)
             },
+            onOpenAbout = { route = Route.About },
             onOpenHistory = {
                 // Re-read here rather than trusting the list captured at launch:
                 // a game can have ended since, and a history that is one game
@@ -133,6 +135,7 @@ fun ChessKraftApp() {
             fens = reviewFens,
             onBack = { route = Route.Home },
         )
+        Route.About -> AboutScreen(onBack = { route = Route.Home })
         Route.History -> {
             // Reads on entry rather than taking the list the nav graph is
             // holding, so the screen is right even if it is reached after a

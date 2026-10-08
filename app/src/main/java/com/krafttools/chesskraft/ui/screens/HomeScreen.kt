@@ -7,6 +7,7 @@ package com.krafttools.chesskraft.ui.screens
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -113,6 +114,7 @@ fun HomeScreen(
     onContinue: (() -> Unit)? = null,
     history: List<FinishedGame> = emptyList(),
     onOpenHistory: (() -> Unit)? = null,
+    onOpenAbout: (() -> Unit)? = null,
 ) {
     var difficulty by remember { mutableStateOf(Difficulty.CASUAL) }
     var sideChoice by remember { mutableStateOf(SideChoice.WHITE) }
@@ -144,6 +146,10 @@ fun HomeScreen(
                 flipped = flipped,
                 onFlip = { flipped = !flipped },
             )
+            if (onOpenAbout != null) {
+                Spacer(Modifier.height(KraftSpacing.Spacing16))
+                AboutRow(onOpenAbout)
+            }
             Spacer(Modifier.height(KraftSpacing.Spacing24))
             // Always shown, not only once there is a record. The first-run
             // player is exactly the one who needs to know the app keeps a
@@ -672,6 +678,42 @@ private fun latestLine(latest: FinishedGame): String {
         "Latest: a game against $bot that has no result saved, $moves."
     } else {
         "Latest: $result against $bot, $moves."
+    }
+}
+
+/**
+ * One quiet line, below everything that matters on this screen.
+ *
+ * It is here because the piece art has a licence that says the credit travels
+ * with the binary, and the binary is on a phone where a NOTICE file in the
+ * source tree is not.
+ */
+@Composable
+private fun AboutRow(onOpen: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(KraftRadius.Medium))
+            .clickable(onClick = onOpen)
+            .heightIn(min = KraftSpacing.Spacing48)
+            .padding(horizontal = KraftSpacing.ScreenEdge, vertical = KraftSpacing.Spacing12)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "About ChessKraft. Version and licences."
+            },
+    ) {
+        Text(
+            text = "About ChessKraft",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(KraftIconSize.Small),
+        )
     }
 }
 

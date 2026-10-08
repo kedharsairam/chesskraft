@@ -11,6 +11,7 @@ package com.krafttools.chesskraft.presentation
 import com.krafttools.chesskraft.domain.Side
 import com.krafttools.chesskraft.engine.Difficulty
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -72,6 +73,32 @@ class RouteTest {
         assertNull(decodeRoute("game${RouteSep}1${RouteSep}RELAXED${RouteSep}NOT_A_SIDE"))
         assertNull(decodeRoute("game${RouteSep}1${RouteSep}RELAXED${RouteSep}WHITE${RouteSep}maybe"))
         assertNull(decodeRoute("game${RouteSep}1${RouteSep}RELAXED${RouteSep}WHITE${RouteSep}false${RouteSep}notanumber"))
+    }
+
+    @Test
+    fun everyFixedRouteSurvivesARoundTrip() {
+        // The screens that carry no state are cheap to restore and must survive
+        // rotation like the rest; they carry nothing, so there is nothing stale
+        // about re-entering them.
+        for (route in listOf(Route.Home, Route.History, Route.About)) {
+            val encoded = encodeRoute(route)
+            assertNotNull("$route must be encodable", encoded)
+            assertEquals(route, decodeRoute(encoded))
+        }
+    }
+
+    @Test
+    fun anUnknownRouteNameIsHome() {
+        assertNull(decodeRoute("settings"))
+        assertNull(decodeRoute("About"))
+    }
+
+    @Test
+    fun trailingFieldsFromAFutureVersionAreIgnored() {
+        // An older build reading a newer build's route should land on the
+        // screen it knows, not drop the player at Home. The Game case does the
+        // same thing already, one field at a time.
+        assertEquals(Route.About, decodeRoute("about${RouteSep}something${RouteSep}new"))
     }
 
     @Test

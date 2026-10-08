@@ -33,6 +33,13 @@ sealed interface Route {
      */
     data object History : Route
 
+    /**
+     * What this app is and who made the pieces. Carries nothing, for the same
+     * reason [History] does: it renders from constants, so there is nothing to
+     * encode and nothing to go stale.
+     */
+    data object About : Route
+
     data class Game(
         val key: Long,
         val difficulty: Difficulty,
@@ -58,6 +65,7 @@ const val RouteMid = ""
 fun encodeRoute(route: Route): String? = when (route) {
     Route.Home -> "home"
         Route.History -> "history"
+        Route.About -> "about"
     is Route.Game -> listOf(
         "game",
         route.key.toString(),
@@ -81,6 +89,7 @@ fun decodeRoute(saved: String?): Route? {
         when (parts.firstOrNull()) {
             "home" -> Route.Home
             "history" -> Route.History
+            "about" -> Route.About
             "game" -> Route.Game(
                 key = parts[1].toLong(),
                 difficulty = Difficulty.valueOf(parts[2]),
