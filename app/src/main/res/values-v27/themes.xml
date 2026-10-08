@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- API 27+ overlay: android:windowLightNavigationBar requires API 27.
+         Styles do NOT merge across qualifier dirs (best match wins), so the
+         full theme is repeated here plus the v27-only item. -->
     <style name="Theme.ChessKraft" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@android:color/black</item>
         <!-- Dark-only app: status-bar icons are always light, never driven by the system theme. -->
         <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
     </style>
 </resources>
